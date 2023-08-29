@@ -1,0 +1,54 @@
+{
+	"name": "Chatbot",
+	"version": "0.2.0",
+	"author": [
+		"Simon Stier"
+	],
+	"url": "https://github.com/OpenSemanticWorld/mediawiki-extensions-Chatbot",
+	"descriptionmsg": "chatbot-desc",
+	"license-name": "AGPL v3",
+	"type": "media",
+	"AutoloadClasses": {
+		"ChatbotHooks": "Chatbot.hooks.php",
+		"SpecialChatbot": "specials/SpecialChatbot.php"
+	},
+	"config": {
+		"ChatbotEnableFoo": true
+	},
+	"ExtensionMessagesFiles": {
+		"ChatbotAlias": "Chatbot.i18n.alias.php",
+		"ChatbotMagic": "Chatbot.i18n.magic.php"
+	},
+	"Hooks": {
+		
+		"ParserFirstCallInit": [
+			"ChatbotHooks::onParserFirstCallInit"
+		]
+	},
+	"MessagesDirs": {
+		"Chatbot": [
+			"i18n"
+		]
+	},
+	"ResourceModules": {
+		"ext.chatbot": {
+			"scripts": [
+				"modules/ext.chatbot.js",
+				"modules/ext.chatbot.foo.js"
+			],
+			"styles": [
+				"modules/ext.chatbot.foo.css"
+			],
+			"messages": [],
+			"dependencies": []
+		}
+	},
+	"ResourceFileModulePaths": {
+		"localBasePath": "",
+		"remoteExtPath": "Chatbot"
+	},
+	"SpecialPages": {
+		"Chatbot": "SpecialChatbot"
+	},
+	"manifest_version": 1
+}

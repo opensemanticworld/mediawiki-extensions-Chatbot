@@ -1,0 +1,12 @@
+{
+	"@metadata": {
+		"authors": [
+			"Simon Stier"
+		]
+	},
+	"chatbot-desc": "Provides an interface to AI chatbots (LLM/GPT)",
+	"chatbot-i18n-welcome": "Welcome to the localization file of the Chatbot extension.",
+	"chatbot-special-hdfviewer-title": "Chatbot",
+	"chatbot-special-hdfviewer-intro": "Embeds an AI chatbot in the wiki per [[Special:Chatbot]]. Currently only supports [https://github.com/h2oai/h2ogpt h2ogpt] e. g. with [https://github.com/OpenSemanticWorld/h2ogpt-cpu-docker-compose h2ogpt-cpu].",
+	"chatbot": "Chatbot"
+}

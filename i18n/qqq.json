@@ -1,0 +1,12 @@
+{
+	"@metadata": {
+		"authors": [
+			"Simon Stier"
+		]
+	},
+	"hdfhandler-desc": "{{desc|name=Chatbot|url=https://github.com/OpenSemanticLab/mediawiki-extensions-Chatbot }}",
+	"hdfhandler-i18n-welcome": "Used to greet the user when reading the i18n/??.json file.",
+	"hdfhandler-special-Chatbot-title": "Page title of the Chatbot special page.\n{{Identical|Chatbot}}",
+	"hdfhandler-special-Chatbot-intro": "Text displayed on the Chatbot SpecialPage.",
+	"hdfhandler": "Text of the link to the Chatbot special page on SpecialPages.\n{{Identical|Chatbot}}"
+}
