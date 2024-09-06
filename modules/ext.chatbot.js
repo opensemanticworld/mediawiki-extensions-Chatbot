@@ -115,7 +115,7 @@
 					"fulltitle_template": "File:{{title}}"
 				}
 			];
-			let strip_extensions = [".html"];
+			let strip_extensions = [".html", ".txt"];
 			link_maps.forEach(map => {
 				let regex = map.regex;
 				//let regex = "file/userdata/pages/(?<ns>[^_]+)_(?<title>\S+)"
