@@ -8,6 +8,12 @@ Never developments build around [osw-chatbot](https://github.com/opensemanticwor
 
 ## Features
 
+Chatbot Popup
+
+![](docs/chatbot-extension-screenshot.png)
+
+Legacy:
+
  * [Special page](https://www.mediawiki.org/wiki/Manual:Special_pages) (specials/SpecialChatbot.php)
  * [Parser hook](https://www.mediawiki.org/wiki/Manual:Parser_functions) (Chatbot/Chatbot.hooks.php)
 
@@ -41,4 +47,10 @@ On any page
 
 
 ## Development
+
+Run a custom instance of [osw-chatbot](https://github.com/opensemanticworld/osw-chatbot)
+
+Navigate to Settings > Chatbot (`Special:Preferences#mw-prefsection-chatbot`)
+
+Set `Custom backend for iframe` to your custom instance server, e.g. `http://localhost:52670/`
 
