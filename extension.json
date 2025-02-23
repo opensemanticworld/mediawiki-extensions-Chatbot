@@ -1,6 +1,6 @@
 {
 	"name": "Chatbot",
-	"version": "0.3.0",
+	"version": "0.3.1",
 	"author": [
 		"Simon Stier"
 	],
@@ -9,13 +9,15 @@
 	"license-name": "AGPL v3",
 	"type": "media",
 	"AutoloadClasses": {
-		"ChatbotHooks": "Chatbot.hooks.php",
+		"MediaWiki\\Extension\\Chatbot\\ChatbotHooks": "Chatbot.hooks.php",
+		"MediaWiki\\Extension\\Chatbot\\ChatbotPreferencesHooks": "Chatbot.hooks.php",
 		"SpecialChatbot": "specials/SpecialChatbot.php"
 	},
 	"config": {
 		"ChatbotPopupAssistentConfig": {
 				"value": {
-					"iframe_src": false
+					"iframe_src": false,
+					"confirm_redirect": true
 				},
 				"description": "Brings the render results of slots into order 'header', 'main', 'footer', <additional slots>. if enabled. Optionally wraps slot content in a div (default: true). Optionally skips (default: false) or hides (default: true) the table of contents which usually is handled separately by skins."
 			}
@@ -25,9 +27,19 @@
 		"ChatbotMagic": "Chatbot.i18n.magic.php"
 	},
 	"Hooks": {
-		"BeforePageDisplay": "ChatbotHooks::onBeforePageDisplay",
-		"ResourceLoaderGetConfigVars": "ChatbotHooks::onResourceLoaderGetConfigVars",
-		"ParserFirstCallInit": "ChatbotHooks::onParserFirstCallInit"
+		"BeforePageDisplay": "MediaWiki\\Extension\\Chatbot\\ChatbotHooks::onBeforePageDisplay",
+		"ResourceLoaderGetConfigVars": "MediaWiki\\Extension\\Chatbot\\ChatbotHooks::onResourceLoaderGetConfigVars",
+		"ParserFirstCallInit": "MediaWiki\\Extension\\Chatbot\\ChatbotHooks::onParserFirstCallInit",
+		"GetPreferences": "preferences_hooks"
+	},
+	"HookHandlers": {
+		"preferences_hooks": {
+			"class": "MediaWiki\\Extension\\Chatbot\\ChatbotPreferencesHooks",
+			"services": [
+				"MainConfig",
+				"UserOptionsLookup"
+			]
+		}
 	},
 	"MessagesDirs": {
 		"Chatbot": [

@@ -7,7 +7,15 @@ $(document).ready(function () {
     container.setAttribute("class", "floating-chat");
 
     var config = mw.config.get('wgChatbotPopupAssistentConfig');
-    console.log(config);
+    var userConfig = {
+        "confirm_redirect": mw.user.options.get("chatbot-confirm-redirect"),
+        "iframe_src": mw.user.options.get("chatbot-custom-backend-iframe-src")
+    }
+    if (userConfig["confirm_redirect"]) config["confirm_redirect"] = true;
+    else config["confirm_redirect"] = false;
+    if (userConfig["iframe_src"] && userConfig["iframe_src"] !== "") config["iframe_src"] = userConfig["iframe_src"];
+    //console.log(config);
+    
     if (!config || !config["iframe_src"] || config["iframe_src"] === "") return;
 
     container.innerHTML = `
@@ -145,10 +153,19 @@ $(document).ready(function () {
         return a * b + 10;
     }
     async function redirect(page) {
+        var config = mw.config.get('wgChatbotPopupAssistentConfig');
+        var userConfig = {
+            "confirm_redirect": mw.user.options.get("chatbot-confirm-redirect"),
+            "iframe_src": mw.user.options.get("chatbot-custom-backend-iframe-src")
+        }
+        if (userConfig["confirm_redirect"]) config["confirm_redirect"] = true;
+        else config["confirm_redirect"] = false;
+        if (userConfig["iframe_src"]) config["iframe_src"] = userConfig["iframe_src"];
+
         let url =  mw.config.get("wgScriptPath") + "/index.php?title=" + encodeURIComponent(page);
         if (page.startsWith("/") || page.startsWith("http")) url = page;
         let result = "rejected";
-        if (window.confirm("EVE wants to guide you to '" + url + "'. Accept?")) {
+        if (config["confirm_redirect"] === false || window.confirm("EVE wants to guide you to '" + url + "'. Accept?")) {
             result = "accepted";
             setTimeout(() => {
                 window.location = url;

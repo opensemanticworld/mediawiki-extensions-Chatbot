@@ -8,5 +8,10 @@
 	"chatbot-i18n-welcome": "Welcome to the localization file of the Chatbot extension.",
 	"chatbot-special-hdfviewer-title": "Chatbot",
 	"chatbot-special-hdfviewer-intro": "Embeds an AI chatbot in the wiki per [[Special:Chatbot]]. Currently only supports [https://github.com/h2oai/h2ogpt h2ogpt] e. g. with [https://github.com/OpenSemanticWorld/h2ogpt-cpu-docker-compose h2ogpt-cpu].",
-	"chatbot": "Chatbot"
+	"chatbot": "Chatbot",
+	"prefs-chatbot": "Chatbot",
+	"chatbot-confirm-redirect-label": "Confirm redict",
+	"chatbot-confirm-redirect-help": "If enabled, the chatbot asks for your confirmation before redirecting you to a new page",
+	"chatbot-custom-backend-iframe-src-label": "Custom backend for iframe",
+	"chatbot-custom-backend-iframe-src-help": "If you are developing a custom backend you can paste the service url here for evaluation"
 }
