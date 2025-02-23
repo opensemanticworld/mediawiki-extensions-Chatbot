@@ -8,6 +8,19 @@
 
 class ChatbotHooks {
 
+	public static function onBeforePageDisplay( $out ) {
+
+		$out->addModules( 'ext.osw.ui.chatbot' );
+
+		return true;
+
+	}
+
+	// see https://www.mediawiki.org/wiki/Manual:Hooks/ResourceLoaderGetConfigVars
+	public static function onResourceLoaderGetConfigVars( array &$vars, $skin, Config $config ): void {
+		$vars['wgChatbotPopupAssistentConfig'] = $config->get( 'ChatbotPopupAssistentConfig' );
+	}
+
 	public static function onParserFirstCallInit( Parser &$parser ) {
 		// important: This needs 	
 		// "ExtensionMessagesFiles": { "ChatbotMagic": "Chatbot.i18n.magic.php" }

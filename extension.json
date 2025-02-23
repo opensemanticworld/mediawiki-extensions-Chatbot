@@ -1,6 +1,6 @@
 {
 	"name": "Chatbot",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"author": [
 		"Simon Stier"
 	],
@@ -13,17 +13,21 @@
 		"SpecialChatbot": "specials/SpecialChatbot.php"
 	},
 	"config": {
-		"ChatbotEnableFoo": true
+		"ChatbotPopupAssistentConfig": {
+				"value": {
+					"iframe_src": false
+				},
+				"description": "Brings the render results of slots into order 'header', 'main', 'footer', <additional slots>. if enabled. Optionally wraps slot content in a div (default: true). Optionally skips (default: false) or hides (default: true) the table of contents which usually is handled separately by skins."
+			}
 	},
 	"ExtensionMessagesFiles": {
 		"ChatbotAlias": "Chatbot.i18n.alias.php",
 		"ChatbotMagic": "Chatbot.i18n.magic.php"
 	},
 	"Hooks": {
-		
-		"ParserFirstCallInit": [
-			"ChatbotHooks::onParserFirstCallInit"
-		]
+		"BeforePageDisplay": "ChatbotHooks::onBeforePageDisplay",
+		"ResourceLoaderGetConfigVars": "ChatbotHooks::onResourceLoaderGetConfigVars",
+		"ParserFirstCallInit": "ChatbotHooks::onParserFirstCallInit"
 	},
 	"MessagesDirs": {
 		"Chatbot": [
@@ -41,6 +45,19 @@
 			],
 			"messages": [],
 			"dependencies": []
+		},
+		"ext.osw.ui.chatbot": {
+			"localBasePath": "modules/ext.osw.ui.chatbot",
+			"remoteExtPath": "Chatbot/modules/ext.osw.ui.chatbot",
+			"dependencies": [
+				"ext.OpenSemanticLab.forms"
+			],
+			"scripts": [
+				"chatbot.js"
+			],
+			"styles": [
+				"chatbot.css"
+			]
 		}
 	},
 	"ResourceFileModulePaths": {
