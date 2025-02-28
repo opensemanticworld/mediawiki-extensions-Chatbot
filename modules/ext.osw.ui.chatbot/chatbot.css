@@ -1,10 +1,10 @@
-* {
+/* * {
 	box-sizing: border-box;
 }
 
 body {
 	background: skyblue;
-}
+} */
 
 .floating-chat {
 	cursor: pointer;
