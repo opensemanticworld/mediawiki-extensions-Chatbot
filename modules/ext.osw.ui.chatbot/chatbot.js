@@ -83,31 +83,41 @@ $(document).ready(function () {
         var strLength = textInput.val().length * 2;
         textInput.keydown(onMetaAndEnter).prop("disabled", false).focus();
         element.off('click', openElement);
-        element.currentSize = "small";
+        if (!element.currentSize) element.currentSize = "small";
+        resizeElement(element.currentSize)
         element.find('.header .close').click(closeElement);
-        element.find('.header .resize').click(resizeElement);
+        element.find('.header .resize').click(onResizeEvent);
         element.find('#sendMessage').click(sendNewMessage);
         //messages.scrollTop(messages.prop("scrollHeight"));
 
         chat_window = document.getElementById("chatbot_iframe").contentWindow;
     }
 
-    function resizeElement() {
-        
-        if (element.currentSize === "small") {
-            element.currentSize = "large";
+    function onResizeEvent() {
+        resizeElement();
+    }
+
+    function resizeElement(size) {
+        if (!size) {
+            // default: toggle size
+            if (element.currentSize === "small") size = "large";
+            else size = "small";
+        }
+        if (size === "large") {
+            element.currentSize = size;
             element.removeClass('expand');
             element.addClass('expand-large');
             element.find('.header .resize i').removeClass('fa-up-right-and-down-left-from-center');
             element.find('.header .resize i').addClass('fa-down-left-and-up-right-to-center');
         }
-        else if (element.currentSize === "large") {
-            element.currentSize = "small";
+        else if (size === "small") {
+            element.currentSize = size;
             element.removeClass('expand-large');
             element.addClass('expand');
             element.find('.header .resize i').removeClass('fa-down-left-and-up-right-to-center');
             element.find('.header .resize i').addClass('fa-up-right-and-down-left-from-center');
         }
+        return element.currentSize
     }
 
     function closeElement() {
@@ -116,7 +126,7 @@ $(document).ready(function () {
         element.removeClass('expand');
         element.removeClass('expand-large');
         element.find('.header .close').off('click', closeElement);
-        element.find('.header .resize').off('click', resizeElement);
+        element.find('.header .resize').off('click', onResizeEvent);
         element.find('#sendMessage').off('click', sendNewMessage);
         element.find('.text-box').off('keydown', onMetaAndEnter).prop("disabled", true).blur();
         setTimeout(function () {
@@ -244,6 +254,11 @@ $(document).ready(function () {
                     "type": "function_call_result",
                     "id": data["id"],
                 };
+
+                if (data["name"] === "resize_chatwindow") {
+                    response["result"] = await resizeElement(...data["args"])
+                }
+
                 if (data["name"] === "multiply") {
                     response["result"] = await multiply(...data["args"])
                 }
