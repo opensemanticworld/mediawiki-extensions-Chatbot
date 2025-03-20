@@ -50,6 +50,15 @@ body {
 	opacity: 1;
 }
 
+.floating-chat.expand-large {
+	width: 90%;
+	max-height: 90%;
+	height: 90%;
+	border-radius: 5px;
+	cursor: auto;
+	opacity: 1;
+}
+
 .floating-chat :focus {
 	outline: 0;
 	box-shadow: 0 0 3pt 2pt rgba(14, 200, 121, 0.3);

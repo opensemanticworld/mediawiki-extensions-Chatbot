@@ -25,13 +25,16 @@ $(document).ready(function () {
             <span class="title">
                 EVE Chat Assistant
             </span>
-            <button>
+            <button class="resize">
+                <i aria-hidden="true" class="fa fa-up-right-and-down-left-from-center"></i>
+            </button>
+            <button class="close">
                 <i class="fa fa-times" aria-hidden="true"></i>
             </button>
                          
         </div>
 
-        <iframe id="chatbot_iframe" src="${config["iframe_src"]}" style="height: 350px;"></iframe>
+        <iframe id="chatbot_iframe" src="${config["iframe_src"]}" style="height: 100%;"></iframe>
         <!-- elements below can be used to render messages directly instead of embedding an iframe -->
         <ul class="messages" style="display:none">
             <li class="self">Test Question?</li>
@@ -80,18 +83,40 @@ $(document).ready(function () {
         var strLength = textInput.val().length * 2;
         textInput.keydown(onMetaAndEnter).prop("disabled", false).focus();
         element.off('click', openElement);
-        element.find('.header button').click(closeElement);
+        element.currentSize = "small";
+        element.find('.header .close').click(closeElement);
+        element.find('.header .resize').click(resizeElement);
         element.find('#sendMessage').click(sendNewMessage);
         //messages.scrollTop(messages.prop("scrollHeight"));
 
         chat_window = document.getElementById("chatbot_iframe").contentWindow;
     }
 
+    function resizeElement() {
+        
+        if (element.currentSize === "small") {
+            element.currentSize = "large";
+            element.removeClass('expand');
+            element.addClass('expand-large');
+            element.find('.header .resize i').removeClass('fa-up-right-and-down-left-from-center');
+            element.find('.header .resize i').addClass('fa-down-left-and-up-right-to-center');
+        }
+        else if (element.currentSize === "large") {
+            element.currentSize = "small";
+            element.removeClass('expand-large');
+            element.addClass('expand');
+            element.find('.header .resize i').removeClass('fa-down-left-and-up-right-to-center');
+            element.find('.header .resize i').addClass('fa-up-right-and-down-left-from-center');
+        }
+    }
+
     function closeElement() {
         element.find('.chat').removeClass('enter').hide();
         element.find('>i').show();
         element.removeClass('expand');
-        element.find('.header button').off('click', closeElement);
+        element.removeClass('expand-large');
+        element.find('.header .close').off('click', closeElement);
+        element.find('.header .resize').off('click', resizeElement);
         element.find('#sendMessage').off('click', sendNewMessage);
         element.find('.text-box').off('keydown', onMetaAndEnter).prop("disabled", true).blur();
         setTimeout(function () {
