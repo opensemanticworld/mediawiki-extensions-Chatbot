@@ -21,6 +21,7 @@ body {
 	transition: all 250ms ease-out;
 	border-radius: 50%;
 	opacity: 0;
+	z-index: 99;
 }
 .floating-chat {
 	background: -moz-linear-gradient(-45deg, #183850 0, #183850 25%, #192C46 50%, #22254C 75%, #22254C 100%);
