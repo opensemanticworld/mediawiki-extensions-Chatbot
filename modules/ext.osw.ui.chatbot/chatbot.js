@@ -26,7 +26,7 @@ $(document).ready(function () {
                 EVE Chat Assistant
             </span>
             <button class="resize">
-                <i aria-hidden="true" class="fa fa-up-right-and-down-left-from-center"></i>
+                <i aria-hidden="true" class="fa fa-expand"></i>
             </button>
             <button class="close">
                 <i class="fa fa-times" aria-hidden="true"></i>
@@ -107,15 +107,15 @@ $(document).ready(function () {
             element.currentSize = size;
             element.removeClass('expand');
             element.addClass('expand-large');
-            element.find('.header .resize i').removeClass('fa-up-right-and-down-left-from-center');
-            element.find('.header .resize i').addClass('fa-down-left-and-up-right-to-center');
+            element.find('.header .resize i').removeClass('fa-expand');
+            element.find('.header .resize i').addClass('fa-compress');
         }
         else if (size === "small") {
             element.currentSize = size;
             element.removeClass('expand-large');
             element.addClass('expand');
-            element.find('.header .resize i').removeClass('fa-down-left-and-up-right-to-center');
-            element.find('.header .resize i').addClass('fa-up-right-and-down-left-from-center');
+            element.find('.header .resize i').removeClass('fa-compress');
+            element.find('.header .resize i').addClass('fa-expand');
         }
         return element.currentSize
     }
