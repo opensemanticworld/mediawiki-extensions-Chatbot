@@ -187,6 +187,17 @@ $(document).ready(function () {
         // just a dummy tool with an obvious error
         return a * b + 10;
     }
+
+    async function where_am_i() {
+        // returns the current window.location
+        let result = {
+            "url": window.location.toString(),
+            "title": document.title,
+            "content": document.body.outerHTML
+        }
+        return result;
+    }
+
     async function redirect(page) {
         var config = mw.config.get('wgChatbotPopupAssistentConfig');
         var userConfig = {
@@ -233,12 +244,40 @@ $(document).ready(function () {
         return results;
     }
 
-    /*async function get_category_schema(category_page) {
-        mwjson.
-    }*/
+    async function get_category_schema(category_page) {
+        let config = {};
+        config.schema = { "allOf": [] };
+        config.schema.allOf.push({ "$ref": osl.util.getAbsoluteJsonSchemaUrl(category_page) });
+        config.mode = "default";
+        config.lang = mw.config.get('wgUserLanguage');
+        // ToDo: Refactor datetime format selection as util in MwJson
+		let langDatetimeFormats = {
+			"en": {"date": "F d, Y", "time": "G:i K", "datetime-local": "F d, Y G:i K"},
+			"de": {"date": "d.m.Y", "time": "H:i", "datetime-local": "d.m.Y H:i"},
+		}
+		let datetimeFormats = {
+			"default": langDatetimeFormats[config.lang ? config.lang : defaultConfig.lang],//No preference
+			"mdy": {"date": "F d, Y", "time": "G:i K", "datetime-local": "F d, Y G:i K"}, //16:12, January 15, 2011
+			"dmy": {"date": "d.m.Y", "time": "H:i", "datetime-local": "d.m.Y H:i"}, //16:12, 15 January 2011
+			"ymd": {"date": "Y/m/d", "time": "H:i", "datetime-local": "Y/m/d H:i"}, //16:12, 2011 January 15
+			"ISO 8601": {"date": "Y-m-d", "time": "H:i", "datetime-local": "Z"}, //2011-01-15T16:12:34
+		}
+		config.format = datetimeFormats[mw.user.options.get("date")];
+        config.target = null
+        console.log(config);
+        try {
+            let jsonschema = new mwjson.schema({jsonschema: config.schema, config: {mode: config.mode, lang: config.lang, format: config.format, target: config.target}});
+            await jsonschema.bundle()
+            await jsonschema.preprocess()
+            return jsonschema.getSchema();
+        } catch(err) {
+            console.error(err);
+            return {}
+        }
+    }
 
-    async function create_category_instance(category_page) {
-        osl.ui.createInstance([category_page]);
+    async function create_category_instance(category_page, default_data) {
+        osl.ui.createInstance([category_page], default_data);
         let result = "success";
         return result;
     }
@@ -263,12 +302,20 @@ $(document).ready(function () {
                     response["result"] = await multiply(...data["args"])
                 }
 
+                if (data["name"] === "where_am_i") {
+                    response["result"] = await where_am_i(...data["args"])
+                }
+
                 if (data["name"] === "redirect") {
                     response["result"] = await redirect(...data["args"])
                 }
 
                 if (data["name"] === "find_page_from_topic") {
                     response["result"] = await find_page_from_topic(...data["args"])
+                }
+
+                if (data["name"] === "get_category_schema") {
+                    response["result"] = await get_category_schema(...data["args"])
                 }
 
                 if (data["name"] === "create_category_instance") {
