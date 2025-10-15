@@ -189,13 +189,102 @@ $(document).ready(function () {
     }
 
     async function where_am_i() {
-        // returns the current window.location
+        // returns the current window.location and user information
+        let user = mw.user;
+        let user_name = "";
+        if (user.isAnon()) user_name = "Anonymouse";
+        else {
+            try {
+            // query user display title via smw ask api
+            const query = `[[User:${user.getName()}]]`;
+            const url = mw.config.get("wgScriptPath") + `/api.php?format=json&action=ask&query=` + encodeURIComponent(query);
+            const data = await (await fetch(url)).json()
+            if (data.query?.results) {
+                for (const result_key of Object.keys(data.query.results)) {
+                    user_name = data.query.results[result_key].displaytitle;
+                }
+            }
+            if (!user_name || user_name === "") user_name = user.getName();
+            } catch(err) {
+                user_name = user.getName(); // fallback
+                console.error(err);
+            }
+        }
         let result = {
             "url": window.location.toString(),
             "title": document.title,
-            "content": document.body.outerHTML
+            "content": document.body.outerHTML.substring(0,10000*10),
+            "user": {
+                "id": user.getName(),
+                "name": user_name,
+            }
         }
         return result;
+    }
+
+    async function highlight_html_element(x_path) {
+        // Replace 'your-xpath-expression' with your actual XPath expression
+        //var xpathExpression = "//*[@id='ooui-php-8']";
+        var xpathExpression = x_path;
+
+        try {
+
+        // Evaluate the XPath expression to select matching elements
+        var result = document.evaluate(
+            xpathExpression,
+            document,
+            null,
+            XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+            null
+        );
+
+        // Function to apply the initial background color
+        function applyBackground() {
+            for (var i = 0; i < result.snapshotLength; i++) {
+                var element = result.snapshotItem(i);
+                // Set the background color to yellow
+                element.style.backgroundColor = 'yellow';
+            }
+        }
+
+        // Function to toggle the border highlight
+        function toggleBorder() {
+            for (var i = 0; i < result.snapshotLength; i++) {
+                var element = result.snapshotItem(i);
+                if (element.style.outline) {
+                    // Remove the red border
+                    element.style.outline = '';
+                } else {
+                    // Apply the red border
+                    element.style.outline = '2px solid red';
+                }
+            }
+        }
+
+        // Apply the yellow background immediately
+        applyBackground();
+
+        // Start the interval to flash the red border every 0.5 seconds
+        var blinkInterval = setInterval(toggleBorder, 500);
+
+        // Stop the blinking and remove styles after 5 seconds
+        setTimeout(function() {
+            // Clear the interval to stop blinking
+            clearInterval(blinkInterval);
+
+            for (var i = 0; i < result.snapshotLength; i++) {
+                var element = result.snapshotItem(i);
+                // Remove the red border
+                element.style.outline = '';
+                // Remove the yellow background color
+                element.style.backgroundColor = '';
+            }
+        }, 5000);
+
+        } catch (err) {
+            return "failed: " + err
+        }
+        return "success"
     }
 
     async function redirect(page) {
@@ -218,6 +307,34 @@ $(document).ready(function () {
             }, 1000) // wait for pending data transmissions
         }
         return result;
+    }
+
+    async function full_text_search(query) {
+        try {
+            const encodedQuery = encodeURIComponent(query);
+            let url = mw.config.get("wgScriptPath");
+            url += `/index.php?title=Special:Search&limit=100&offset=0&profile=default&search=${encodedQuery}`;
+            const response = await fetch(url);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const html = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+
+            const searchResults = doc.querySelector('.mw-search-results');
+            
+            if (searchResults) {
+                return searchResults.outerHTML;
+            } else {
+                return null;
+            }
+            
+        } catch (error) {
+            throw error;
+        }
     }
 
     async function find_page_from_topic(topic) {
@@ -243,6 +360,52 @@ $(document).ready(function () {
         }
         return results;
     }
+
+    async function get_page_content(titles, include_html = true) {
+
+        // get slot content of multiple pages
+        const encodedTitles = encodeURIComponent(titles.join('|'));
+        const response = await fetch(`${mw.config.get("wgScriptPath")}/api.php?action=query&format=json&prop=revisions&list=&titles=${encodedTitles}&rvprop=ids%7Ctimestamp%7Cflags%7Ccomment%7Cuser%7Ccontent%7Ccontentmodel&rvslots=*`);
+        slot_data = await response.json();
+
+        if (include_html) {
+            // get html content of multiple pages
+            // send multiple parse api requests in parallel
+            const promises = titles.map(async (title) => {
+                const encodedTitle = encodeURIComponent(title);
+                const response = await fetch(`${mw.config.get("wgScriptPath")}/api.php?action=parse&page=${encodedTitle}&format=json`);
+                return await response.json();
+            });
+            const results = await Promise.all(promises);
+            let html_contents = {};
+            results.forEach((result, index) => {
+                if (result.parse && result.parse.text) {
+                    html_contents[titles[index]] = result.parse.text["*"];
+                } else {
+                    html_contents[titles[index]] = null;
+                }
+            });
+
+            // add html as additional slot
+            if (slot_data.query && slot_data.query.pages) {
+                for (const pageId of Object.keys(slot_data.query.pages)) {
+                    const page = slot_data.query.pages[pageId];
+                    if (page.title && html_contents[page.title]) {
+                        if (page.revisions && page.revisions[0] && page.revisions[0].slots) {
+                            page.revisions[0].slots["html"] = {
+                                "contentmodel": "html",
+                                "contentformat": "text/html",
+                                "*": html_contents[page.title]
+                            }
+                        }
+                    }
+                }
+            }
+
+        }
+
+        return slot_data;
+    };
 
     async function get_category_schema(category_page) {
         let config = {};
@@ -282,6 +445,31 @@ $(document).ready(function () {
         return result;
     }
 
+    async function smw_ask_query(smw_ask_query) {
+        let query = mw.config.get("wgScriptPath");
+        query += `/api.php?format=json&action=ask&query=${encodeURIComponent(smw_ask_query)}`;
+        const data = await (await fetch(query)).json()
+        return data;
+    }
+
+    async function get_file_data_url(file_title) {
+        // construct direct URL to file using Special:Redirect/file/<file_title>
+        let url = mw.config.get("wgScriptPath") + "/index.php?title=Special:Redirect/file/" + encodeURIComponent(file_title);
+        // load file
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        // generate base64 data URL
+        const blob = await response.blob();
+        return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    }
+
     window.addEventListener("message", async (event) => {
 
         try {
@@ -306,12 +494,24 @@ $(document).ready(function () {
                     response["result"] = await where_am_i(...data["args"])
                 }
 
+                if (data["name"] === "highlight_html_element") {
+                    response["result"] = await highlight_html_element(...data["args"])
+                }
+
                 if (data["name"] === "redirect") {
                     response["result"] = await redirect(...data["args"])
                 }
 
+                if (data["name"] === "full_text_search") {
+                    response["result"] = await full_text_search(...data["args"])
+                }
+
                 if (data["name"] === "find_page_from_topic") {
                     response["result"] = await find_page_from_topic(...data["args"])
+                }
+
+                if (data["name"] === "get_page_content") {
+                    response["result"] = await get_page_content(...data["args"])
                 }
 
                 if (data["name"] === "get_category_schema") {
@@ -320,6 +520,14 @@ $(document).ready(function () {
 
                 if (data["name"] === "create_category_instance") {
                     response["result"] = await create_category_instance(...data["args"])
+                }
+
+                if (data["name"] === "smw_ask_query") {
+                    response["result"] = await smw_ask_query(...data["args"])
+                }
+
+                if (data["name"] === "get_file_data_url") {
+                    response["result"] = await get_file_data_url(...data["args"])
                 }
 
                 chat_window = document.getElementById("chatbot_iframe").contentWindow;
