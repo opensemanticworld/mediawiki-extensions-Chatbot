@@ -10,7 +10,7 @@ $(document).ready(function () {
     var userConfig = {
         "confirm_redirect": mw.user.options.get("chatbot-confirm-redirect"),
         "iframe_src": mw.user.options.get("chatbot-custom-backend-iframe-src")
-    }
+    };
     if (userConfig["confirm_redirect"]) config["confirm_redirect"] = true;
     else config["confirm_redirect"] = false;
     if (userConfig["iframe_src"] && userConfig["iframe_src"] !== "") config["iframe_src"] = userConfig["iframe_src"];
@@ -84,7 +84,7 @@ $(document).ready(function () {
         textInput.keydown(onMetaAndEnter).prop("disabled", false).focus();
         element.off('click', openElement);
         if (!element.currentSize) element.currentSize = "small";
-        resizeElement(element.currentSize)
+        resizeElement(element.currentSize);
         element.find('.header .close').click(closeElement);
         element.find('.header .resize').click(onResizeEvent);
         element.find('#sendMessage').click(sendNewMessage);
@@ -117,7 +117,7 @@ $(document).ready(function () {
             element.find('.header .resize i').removeClass('fa-compress');
             element.find('.header .resize i').addClass('fa-expand');
         }
-        return element.currentSize
+        return element.currentSize;
     }
 
     function closeElement() {
@@ -130,7 +130,7 @@ $(document).ready(function () {
         element.find('#sendMessage').off('click', sendNewMessage);
         element.find('.text-box').off('keydown', onMetaAndEnter).prop("disabled", true).blur();
         setTimeout(function () {
-            element.find('.chat').removeClass('enter').show()
+            element.find('.chat').removeClass('enter').show();
             element.click(openElement);
         }, 500);
     }
@@ -198,7 +198,7 @@ $(document).ready(function () {
             // query user display title via smw ask api
             const query = `[[User:${user.getName()}]]`;
             const url = mw.config.get("wgScriptPath") + `/api.php?format=json&action=ask&query=` + encodeURIComponent(query);
-            const data = await (await fetch(url)).json()
+            const data = await (await fetch(url)).json();
             if (data.query?.results) {
                 for (const result_key of Object.keys(data.query.results)) {
                     user_name = data.query.results[result_key].displaytitle;
@@ -218,7 +218,7 @@ $(document).ready(function () {
                 "id": user.getName(),
                 "name": user_name,
             }
-        }
+        };
         return result;
     }
 
@@ -282,9 +282,9 @@ $(document).ready(function () {
         }, 5000);
 
         } catch (err) {
-            return "failed: " + err
+            return "failed: " + err;
         }
-        return "success"
+        return "success";
     }
 
     async function redirect(page) {
@@ -292,7 +292,7 @@ $(document).ready(function () {
         var userConfig = {
             "confirm_redirect": mw.user.options.get("chatbot-confirm-redirect"),
             "iframe_src": mw.user.options.get("chatbot-custom-backend-iframe-src")
-        }
+        };
         if (userConfig["confirm_redirect"]) config["confirm_redirect"] = true;
         else config["confirm_redirect"] = false;
         if (userConfig["iframe_src"]) config["iframe_src"] = userConfig["iframe_src"];
@@ -304,7 +304,7 @@ $(document).ready(function () {
             result = "accepted";
             setTimeout(() => {
                 window.location = url;
-            }, 1000) // wait for pending data transmissions
+            }, 1000); // wait for pending data transmissions
         }
         return result;
     }
@@ -342,20 +342,20 @@ $(document).ready(function () {
         topic = topic.toLowerCase().replace(/[^0-9a-z]/gi, '');
         query += `/api.php?format=json&action=compoundquery&query=`;
         query += encodeURIComponent(`[[:Category:+]] [[HasNormalizedLabel::${topic}]][[HasOswId::!~*#*]];?HasLabel=displaytitle;?HasType.HasName=type;?HasImage=thumbnail;?HasDescription=desc;limit=1 |[[:Category:+]][[HasNormalizedLabel::~*${topic}*]][[HasOswId::!~*#*]];?HasLabel=displaytitle;?HasType.HasName=type;?HasImage=thumbnail;?HasDescription=desc;limit=7`);
-        const data = await (await fetch(query)).json()
-        let results = []
+        const data = await (await fetch(query)).json();
+        let results = [];
         if (data.query?.results) {
             for (const result_key of Object.keys(data.query.results)) {
                 const po = data.query.results[result_key].printouts;
                 const label = po.displaytitle?.[0]?.Text?.item[0];
                 const description = po.description?.[0]?.Text?.item[0];
-                const type = po.type[0]
+                const type = po.type[0];
                 results.push({
                     "title": result_key,
                     "label": label ? label : "",
                     "description": description ? description : "",
                     "type": type ? type : "",
-                })
+                });
             }
         }
         return results;
@@ -396,7 +396,7 @@ $(document).ready(function () {
                                 "contentmodel": "html",
                                 "contentformat": "text/html",
                                 "*": html_contents[page.title]
-                            }
+                            };
                         }
                     }
                 }
@@ -417,25 +417,25 @@ $(document).ready(function () {
 		let langDatetimeFormats = {
 			"en": {"date": "F d, Y", "time": "G:i K", "datetime-local": "F d, Y G:i K"},
 			"de": {"date": "d.m.Y", "time": "H:i", "datetime-local": "d.m.Y H:i"},
-		}
+		};
 		let datetimeFormats = {
 			"default": langDatetimeFormats[config.lang ? config.lang : defaultConfig.lang],//No preference
 			"mdy": {"date": "F d, Y", "time": "G:i K", "datetime-local": "F d, Y G:i K"}, //16:12, January 15, 2011
 			"dmy": {"date": "d.m.Y", "time": "H:i", "datetime-local": "d.m.Y H:i"}, //16:12, 15 January 2011
 			"ymd": {"date": "Y/m/d", "time": "H:i", "datetime-local": "Y/m/d H:i"}, //16:12, 2011 January 15
 			"ISO 8601": {"date": "Y-m-d", "time": "H:i", "datetime-local": "Z"}, //2011-01-15T16:12:34
-		}
+		};
 		config.format = datetimeFormats[mw.user.options.get("date")];
-        config.target = null
+        config.target = null;
         console.log(config);
         try {
             let jsonschema = new mwjson.schema({jsonschema: config.schema, config: {mode: config.mode, lang: config.lang, format: config.format, target: config.target}});
-            await jsonschema.bundle()
-            await jsonschema.preprocess()
+            await jsonschema.bundle();
+            await jsonschema.preprocess();
             return jsonschema.getSchema();
         } catch(err) {
             console.error(err);
-            return {}
+            return {};
         }
     }
 
@@ -448,7 +448,7 @@ $(document).ready(function () {
     async function smw_ask_query(smw_ask_query) {
         let query = mw.config.get("wgScriptPath");
         query += `/api.php?format=json&action=ask&query=${encodeURIComponent(smw_ask_query)}`;
-        const data = await (await fetch(query)).json()
+        const data = await (await fetch(query)).json();
         return data;
     }
 
@@ -483,55 +483,55 @@ $(document).ready(function () {
                 };
 
                 if (data["name"] === "resize_chatwindow") {
-                    response["result"] = await resizeElement(...data["args"])
+                    response["result"] = await resizeElement(...data["args"]);
                 }
 
                 if (data["name"] === "multiply") {
-                    response["result"] = await multiply(...data["args"])
+                    response["result"] = await multiply(...data["args"]);
                 }
 
                 if (data["name"] === "where_am_i") {
-                    response["result"] = await where_am_i(...data["args"])
+                    response["result"] = await where_am_i(...data["args"]);
                 }
 
                 if (data["name"] === "highlight_html_element") {
-                    response["result"] = await highlight_html_element(...data["args"])
+                    response["result"] = await highlight_html_element(...data["args"]);
                 }
 
                 if (data["name"] === "redirect") {
-                    response["result"] = await redirect(...data["args"])
+                    response["result"] = await redirect(...data["args"]);
                 }
 
                 if (data["name"] === "full_text_search") {
-                    response["result"] = await full_text_search(...data["args"])
+                    response["result"] = await full_text_search(...data["args"]);
                 }
 
                 if (data["name"] === "find_page_from_topic") {
-                    response["result"] = await find_page_from_topic(...data["args"])
+                    response["result"] = await find_page_from_topic(...data["args"]);
                 }
 
                 if (data["name"] === "get_page_content") {
-                    response["result"] = await get_page_content(...data["args"])
+                    response["result"] = await get_page_content(...data["args"]);
                 }
 
                 if (data["name"] === "get_category_schema") {
-                    response["result"] = await get_category_schema(...data["args"])
+                    response["result"] = await get_category_schema(...data["args"]);
                 }
 
                 if (data["name"] === "create_category_instance") {
-                    response["result"] = await create_category_instance(...data["args"])
+                    response["result"] = await create_category_instance(...data["args"]);
                 }
 
                 if (data["name"] === "smw_ask_query") {
-                    response["result"] = await smw_ask_query(...data["args"])
+                    response["result"] = await smw_ask_query(...data["args"]);
                 }
 
                 if (data["name"] === "get_file_data_url") {
-                    response["result"] = await get_file_data_url(...data["args"])
+                    response["result"] = await get_file_data_url(...data["args"]);
                 }
 
                 chat_window = document.getElementById("chatbot_iframe").contentWindow;
-                chat_window.postMessage(response, "*")
+                chat_window.postMessage(response, "*");
             }
         } catch (error) {
             console.error(error);

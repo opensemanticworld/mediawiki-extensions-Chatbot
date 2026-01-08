@@ -24,9 +24,9 @@
 				"'": "&#039;",
 				"&": "&amp;",
 				"\"": "&quot;"
-			}
+			};
 			for (let unescaped in escapings) {
-				uri = uri.replaceAll(escapings[unescaped], unescaped)
+				uri = uri.replaceAll(escapings[unescaped], unescaped);
 			}
 			uri = new mw.Uri(uri);
 
@@ -49,7 +49,7 @@
 				let links = iframe.contentDocument.querySelectorAll('a');
 				//if (!Array.isArray(links)) links = [links];
 				links.forEach(e => {
-					this.updateLink(e)
+					this.updateLink(e);
 				});
 			});
 
@@ -123,13 +123,13 @@
 				//console.log(regex);
 				let res = new RegExp(regex).exec(
 					link,
-				)
+				);
 				if (res) {
 					const { ns, title } = res.groups;
 					let fulltitle = map.fulltitle_template.replaceAll("{{ns}}", ns).replaceAll("{{title}}", title);
 					//link = "/wiki/" + fulltitle;
 					link = mw.util.getUrl( fulltitle );
-					strip_extensions.forEach(ext => {link = link.replaceAll(ext, "") });
+					strip_extensions.forEach(ext => {link = link.replaceAll(ext, ""); });
 					//link = link.replaceAll(".html", "");
 
 					element.href = link;
@@ -146,7 +146,7 @@
 						if (data && data['query'] && data['query']['pages']) {
 							data['query']['pages'].forEach(p => {
 								if (p['displaytitle']) element.textContent = p['displaytitle'];
-							})
+							});
 						}
 					} );
 				}
