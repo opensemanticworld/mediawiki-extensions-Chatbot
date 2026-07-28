@@ -1,6 +1,6 @@
 {
 	"name": "Chatbot",
-	"version": "0.6.1",
+	"version": "0.7.0",
 	"author": [
 		"Simon Stier"
 	],
@@ -9,9 +9,13 @@
 	"license-name": "AGPL v3",
 	"type": "media",
 	"AutoloadClasses": {
+		"MediaWiki\\Extension\\Chatbot\\ApiChatbotToken": "includes/ApiChatbotToken.php",
 		"MediaWiki\\Extension\\Chatbot\\ChatbotHooks": "Chatbot.hooks.php",
 		"MediaWiki\\Extension\\Chatbot\\ChatbotPreferencesHooks": "Chatbot.hooks.php",
 		"SpecialChatbot": "specials/SpecialChatbot.php"
+	},
+	"APIModules": {
+		"chatbottoken": "MediaWiki\\Extension\\Chatbot\\ApiChatbotToken"
 	},
 	"config": {
 		"ChatbotPopupAssistentConfig": {
@@ -19,7 +23,19 @@
 					"iframe_src": false,
 					"confirm_redirect": true
 				},
-				"description": "Brings the render results of slots into order 'header', 'main', 'footer', <additional slots>. if enabled. Optionally wraps slot content in a div (default: true). Optionally skips (default: false) or hides (default: true) the table of contents which usually is handled separately by skins."
+				"description": "Configures the popup chat assistant. 'iframe_src' is the url of the chatbot backend to embed (false disables the assistant), 'confirm_redirect' asks the user before the assistant navigates to another page."
+			},
+		"ChatbotSecret": {
+				"value": "",
+				"description": "Secret shared with the chatbot backend (CHATBOT_SHARED_SECRET there). Used to sign the per-user token that action=chatbottoken issues. When empty no token is issued and the backend runs unauthenticated."
+			},
+		"ChatbotTokenTtl": {
+				"value": 43200,
+				"description": "Lifetime in seconds of the token issued by action=chatbottoken."
+			},
+		"ChatbotAllowedBackendOrigins": {
+				"value": [],
+				"description": "Origins a user may point the 'Custom backend for iframe' preference at, e.g. ['http://localhost:52670']. Empty disables the preference: it hands the full tool-call channel - including page content and file downloads - to whatever origin is entered."
 			}
 	},
 	"ExtensionMessagesFiles": {
@@ -62,7 +78,9 @@
 			"localBasePath": "modules/ext.osw.ui.chatbot",
 			"remoteExtPath": "Chatbot/modules/ext.osw.ui.chatbot",
 			"dependencies": [
-				"ext.OpenSemanticLab.forms"
+				"ext.OpenSemanticLab.forms",
+				"mediawiki.api",
+				"mediawiki.user"
 			],
 			"scripts": [
 				"chatbot.js"
@@ -79,5 +97,5 @@
 	"SpecialPages": {
 		"Chatbot": "SpecialChatbot"
 	},
-	"manifest_version": 1
+	"manifest_version": 2
 }

@@ -13,10 +13,39 @@ $(document).ready(function () {
     };
     if (userConfig["confirm_redirect"]) config["confirm_redirect"] = true;
     else config["confirm_redirect"] = false;
-    if (userConfig["iframe_src"] && userConfig["iframe_src"] !== "") config["iframe_src"] = userConfig["iframe_src"];
+    if (userConfig["iframe_src"] && userConfig["iframe_src"] !== ""
+        && isAllowedBackend(userConfig["iframe_src"])) {
+        config["iframe_src"] = userConfig["iframe_src"];
+    }
     //console.log(config);
-    
+
     if (!config || !config["iframe_src"] || config["iframe_src"] === "") return;
+
+    // A custom backend receives every tool call - page content, file
+    // downloads, redirects - so it must be on the configured allowlist.
+    // Checked here as well as server side, because a value may have been
+    // saved before the allowlist was introduced.
+    function isAllowedBackend(src) {
+        var allowed = mw.config.get('wgChatbotAllowedBackendOrigins') || [];
+        if (!allowed.length) return false;
+        try {
+            return allowed.indexOf(new URL(src, location.href).origin) !== -1;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // The origin of the backend. Every postMessage we send goes there
+    // explicitly, and every message we accept must come from there - otherwise
+    // any page able to reach this window could make the wiki run the tool
+    // functions below with the logged in user's session.
+    var frameOrigin;
+    try {
+        frameOrigin = new URL(config["iframe_src"], location.href).origin;
+    } catch (e) {
+        console.error("chatbot: invalid iframe_src", e);
+        return;
+    }
 
     container.innerHTML = `
     <i class="fa fa-comments" aria-hidden="true"></i>
@@ -31,10 +60,10 @@ $(document).ready(function () {
             <button class="close">
                 <i class="fa fa-times" aria-hidden="true"></i>
             </button>
-                         
+
         </div>
 
-        <iframe id="chatbot_iframe" src="${config["iframe_src"]}" style="height: 100%;"></iframe>
+        <iframe id="chatbot_iframe" style="height: 100%;"></iframe>
         <!-- elements below can be used to render messages directly instead of embedding an iframe -->
         <ul class="messages" style="display:none">
             <li class="self">Test Question?</li>
@@ -53,6 +82,36 @@ $(document).ready(function () {
 
     if (!myStorage.getItem('chatID')) {
         myStorage.setItem('chatID', createUUID());
+    }
+
+    // Namespace for everything the backend asks us to store on its behalf.
+    // The backend runs in a third-party iframe where localStorage is
+    // partitioned or blocked, so it delegates storage to us - and because we
+    // build the key, one wiki user can never read another one's history.
+    var storageNamespace = 'osw-chatbot:' + mw.config.get('wgDBname') + ':'
+        + (mw.user.isAnon() ? 'anon:' + myStorage.getItem('chatID') : mw.user.getName())
+        + ':';
+
+    // The iframe src is set asynchronously: the backend may require a signed
+    // token identifying the current user (see ApiChatbotToken.php).
+    getBackendUrl(config["iframe_src"]).then(function (src) {
+        document.getElementById("chatbot_iframe").src = src;
+    });
+
+    function getBackendUrl(baseSrc) {
+        return new mw.Api().get({ action: 'chatbottoken', format: 'json' })
+            .then(function (data) {
+                var token = data && data.chatbottoken && data.chatbottoken.token;
+                if (!token) return baseSrc;
+                var url = new URL(baseSrc, location.href);
+                url.searchParams.set('token', token);
+                return url.toString();
+            })
+            .catch(function () {
+                // No token support configured ($wgChatbotSecret unset) - the
+                // backend then accepts unauthenticated sessions.
+                return baseSrc;
+            });
     }
 
     setTimeout(function () {
@@ -215,7 +274,8 @@ $(document).ready(function () {
             "title": document.title,
             "content": document.body.outerHTML.substring(0,10000*10),
             "user": {
-                "id": user.getName(),
+                // getName() is null for anonymous readers - always send a string
+                "id": user.getName() || "anonymous",
                 "name": user_name,
             }
         };
@@ -470,11 +530,71 @@ $(document).ready(function () {
         });
     }
 
+    //// storage delegated to us by the backend (see storageNamespace above)
+
+    function storageKey(key) {
+        // Only plain keys - never let the backend address anything outside its
+        // own namespace, or any other MediaWiki localStorage entry.
+        if (typeof key !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(key)) return null;
+        return storageNamespace + key;
+    }
+
+    function handleStorageMessage(data) {
+        const key = storageKey(data["key"]);
+        if (key === null) {
+            console.warn("chatbot: rejected storage key", data["key"]);
+            return null;
+        }
+        try {
+            if (data["type"] === "chatbot_storage_get") {
+                return {
+                    "type": "chatbot_storage_result",
+                    "id": data["id"],
+                    "value": myStorage.getItem(key)
+                };
+            }
+            if (data["type"] === "chatbot_storage_set") {
+                myStorage.setItem(key, String(data["value"]));
+            }
+            if (data["type"] === "chatbot_storage_remove") {
+                myStorage.removeItem(key);
+            }
+        } catch (error) {
+            console.warn("chatbot: storage unavailable", error && error.name);
+            if (data["type"] === "chatbot_storage_get") {
+                return { "type": "chatbot_storage_result", "id": data["id"], "value": null };
+            }
+        }
+        return null;
+    }
+
+    function replyToBackend(response) {
+        if (!response) return;
+        const iframe = document.getElementById("chatbot_iframe");
+        if (!iframe || !iframe.contentWindow) return;
+        chat_window = iframe.contentWindow;
+        chat_window.postMessage(response, frameOrigin);
+    }
+
     window.addEventListener("message", async (event) => {
 
         try {
+            // Only the backend iframe may drive any of this.
+            const iframe = document.getElementById("chatbot_iframe");
+            if (!iframe || event.source !== iframe.contentWindow) return;
+            if (event.origin !== frameOrigin) {
+                console.warn("chatbot: dropped message from", event.origin);
+                return;
+            }
 
             const data = event.data;
+            if (!data || typeof data !== "object") return;
+
+            if (data["type"] && data["type"].indexOf("chatbot_storage_") === 0) {
+                replyToBackend(handleStorageMessage(data));
+                return;
+            }
+
             if (data["type"] === "function_call") {
                 console.log("Received data from child iframe ", event.origin, event.data);
                 let response = {
@@ -530,8 +650,7 @@ $(document).ready(function () {
                     response["result"] = await get_file_data_url(...data["args"]);
                 }
 
-                chat_window = document.getElementById("chatbot_iframe").contentWindow;
-                chat_window.postMessage(response, "*");
+                replyToBackend(response);
             }
         } catch (error) {
             console.error(error);

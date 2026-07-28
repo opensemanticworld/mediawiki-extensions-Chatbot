@@ -8,5 +8,9 @@
 	"hdfhandler-i18n-welcome": "Used to greet the user when reading the i18n/??.json file.",
 	"hdfhandler-special-Chatbot-title": "Page title of the Chatbot special page.\n{{Identical|Chatbot}}",
 	"hdfhandler-special-Chatbot-intro": "Text displayed on the Chatbot SpecialPage.",
-	"hdfhandler": "Text of the link to the Chatbot special page on SpecialPages.\n{{Identical|Chatbot}}"
+	"hdfhandler": "Text of the link to the Chatbot special page on SpecialPages.\n{{Identical|Chatbot}}",
+	"chatbot-custom-backend-iframe-src-invalid": "Error shown when a user enters a chatbot backend url whose origin is not in $wgChatbotAllowedBackendOrigins.",
+	"apihelp-chatbottoken-summary": "{{doc-apihelp-summary|chatbottoken}}",
+	"apihelp-chatbottoken-example": "{{doc-apihelp-example|chatbottoken}}",
+	"apierror-chatbot-token-not-configured": "{{doc-apierror}}\n\nShown when $wgChatbotSecret is not set on the wiki."
 }

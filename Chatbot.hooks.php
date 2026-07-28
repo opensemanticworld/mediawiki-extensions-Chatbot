@@ -27,6 +27,9 @@ class ChatbotHooks {
 	// see https://www.mediawiki.org/wiki/Manual:Hooks/ResourceLoaderGetConfigVars
 	public static function onResourceLoaderGetConfigVars( array &$vars, $skin, $config ): void {
 		$vars['wgChatbotPopupAssistentConfig'] = $config->get( 'ChatbotPopupAssistentConfig' );
+		// Note: never expose $wgChatbotSecret here - this ends up in cached
+		// page output. Per-user tokens are issued by action=chatbottoken.
+		$vars['wgChatbotAllowedBackendOrigins'] = $config->get( 'ChatbotAllowedBackendOrigins' );
 	}
 
 	public static function onParserFirstCallInit( &$parser ) {
@@ -83,7 +86,15 @@ class ChatbotPreferencesHooks implements GetPreferencesHook {
 			'section' => $your_new_extensions_section
 		];
 
-		// An string input box
+		// An string input box.
+		// Only offered when an allowlist is configured: this preference hands
+		// the whole postMessage tool channel - page content, file downloads,
+		// redirects - to whatever origin is entered here.
+		$allowedOrigins = $this->config->get( 'ChatbotAllowedBackendOrigins' );
+		if ( !is_array( $allowedOrigins ) || $allowedOrigins === [] ) {
+			return;
+		}
+
 		$preferences_key = 'chatbot-custom-backend-iframe-src';
 		$preferences_default = $this->userOptionsLookup->getOption(
 						$user,
@@ -95,7 +106,22 @@ class ChatbotPreferencesHooks implements GetPreferencesHook {
 			'label-message' => 'chatbot-custom-backend-iframe-src-label',
 			//'maxLength' => 4,
 			'default' => $preferences_default,
-			'section' => $your_new_extensions_section
+			'section' => $your_new_extensions_section,
+			'validation-callback' => static function ( $value ) use ( $allowedOrigins ) {
+				if ( $value === null || $value === '' ) {
+					return true;
+				}
+				$parts = parse_url( $value );
+				if ( !$parts || !isset( $parts['scheme'], $parts['host'] ) ) {
+					return wfMessage( 'chatbot-custom-backend-iframe-src-invalid' );
+				}
+				$origin = $parts['scheme'] . '://' . $parts['host']
+					. ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' );
+				if ( !in_array( $origin, $allowedOrigins, true ) ) {
+					return wfMessage( 'chatbot-custom-backend-iframe-src-invalid' );
+				}
+				return true;
+			}
 		];
 
 
