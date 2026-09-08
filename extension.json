@@ -6,7 +6,7 @@
 	],
 	"url": "https://github.com/OpenSemanticWorld/mediawiki-extensions-Chatbot",
 	"descriptionmsg": "chatbot-desc",
-	"license-name": "AGPL v3",
+	"license-name": "Apache-2.0",
 	"type": "media",
 	"AutoloadClasses": {
 		"MediaWiki\\Extension\\Chatbot\\ApiChatbotToken": "includes/ApiChatbotToken.php",
