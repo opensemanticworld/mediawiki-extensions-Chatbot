@@ -43,8 +43,20 @@ wfLoadExtension( 'Chatbot' );
 // name of its script, hence the /main suffix.
 $wgChatbotPopupAssistentConfig = [
     'iframe_src' => 'https://osw-chatbot.your-domain.com/main',
-    'confirm_redirect' => true,   // ask before the assistant navigates away
 ];
+
+// What the assistant may do. Only 'websearch' is on by default - installing
+// the extension never grants it write access to the wiki.
+//   websearch  search the web (runs in the backend)
+//   redirect   navigate the user to another page
+//   edit       create and change pages and their slots
+//   delete     delete pages
+//   script     write JavaScript/CSS, user scope only - see below
+$wgChatbotActions = [ 'websearch', 'redirect', 'edit' ];
+
+// Which of those ask the user first. This is a dialog in the browser, shown
+// before the tool runs; the assistant cannot bypass it.
+$wgChatbotConfirmActions = [ 'websearch', 'redirect', 'script' ];
 
 // Shared with the backend (CHATBOT_SHARED_SECRET there). Enables the signed
 // per-user token described below. Leave empty to run the backend open.
@@ -76,12 +88,43 @@ ITP), so it asks the wiki to store the chat history for it, via
 `osw-chatbot:<wgDBname>:<user>:<key>` - and rejects anything outside that
 namespace, which is what keeps one user's history away from another's.
 
+**Writing.** With `edit` enabled the assistant can create and change pages through
+`edit_page` (MwJson's slot API - `main`, `jsondata`, `jsonschema`, `header`, `footer`, the
+`*_template` slots), and with `delete` it can delete them. Only the slots it names are
+touched. Every refusal - missing rights, protected page, edit conflict, an abuse filter -
+is mapped to a plain sentence and handed back to the assistant, which relays it instead of
+claiming success. MediaWiki checks the user's rights on every write regardless of what is
+configured here; `$wgChatbotActions` only narrows what the assistant is allowed to attempt.
+
+### Scripts run for their author only
+
+`script` lets the assistant build small components - a visualization, a widget - as a user
+script. It may write **only** inside the current user's own space (`User:<name>/…`), and
+site-wide JavaScript such as `MediaWiki:Common.js` is refused even for interface admins.
+
+That is deliberate. The usual pattern loads a script from `MediaWiki:Common.js` through a
+CSS class on a page, so it runs for *every visitor*; combined with a script in user space
+that would let any user run code in everyone's browser. A component therefore works for its
+author, and going site-wide stays a reviewed, interface-admin operation.
+
+> **Prerequisite:** `$wgAllowUserJs = true`. MediaWiki disables personal JavaScript by
+> default, and with it off a `User:<name>/Foo.js` page saves fine but is **never loaded** -
+> the component silently does nothing. The assistant warns about this when it writes a
+> script to a wiki where the setting is off. No extra rights are needed otherwise:
+> `editmyuserjs` is granted to the `user` group by default.
+
 **Identity.** `action=chatbottoken` issues a short lived token
 `base64url(json{u,w,iat,exp,n}).base64url(hmac_sha256)` signed with
 `$wgChatbotSecret`; `chatbot.js` appends it to the iframe url and the backend
 verifies it. It is an API module rather than a `mw.config` var so that a
 per-user secret never lands in cached page output. Anonymous readers are issued
 a token for the user `anon`.
+
+The token also carries the two action lists. `websearch` runs in the backend rather than in
+the browser, so this is the only way the backend can learn whether it is allowed - and
+because the payload is signed, a client cannot widen it. Without a configured secret the
+backend falls back to web search only; the write actions are enforced in the browser either
+way.
 
 ## Development
 

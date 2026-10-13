@@ -45,6 +45,11 @@ class ApiChatbotToken extends ApiBase {
 			'iat' => $now,
 			'exp' => $now + $ttl,
 			'n' => bin2hex( random_bytes( 8 ) ),
+			// Actions the backend itself gates - 'websearch' runs there, not in
+			// the browser, so it cannot read the wiki config. Signed, hence
+			// trustworthy; the client-side actions are enforced in the browser.
+			'a' => ChatbotHooks::getActions( $config, $user ),
+			'ca' => array_values( (array)$config->get( 'ChatbotConfirmActions' ) ),
 		];
 
 		$payloadB64 = self::base64UrlEncode( json_encode( $payload ) );

@@ -10,6 +10,13 @@
 	"hdfhandler-special-Chatbot-intro": "Text displayed on the Chatbot SpecialPage.",
 	"hdfhandler": "Text of the link to the Chatbot special page on SpecialPages.\n{{Identical|Chatbot}}",
 	"chatbot-custom-backend-iframe-src-invalid": "Error shown when a user enters a chatbot backend url whose origin is not in $wgChatbotAllowedBackendOrigins.",
+	"chatbot-confirm-actions-label": "Label of the preference selecting which assistant actions require confirmation.",
+	"chatbot-confirm-actions-help": "Help text for the confirm-actions preference.",
+	"chatbot-action-websearch": "Name of the 'websearch' action, shown in the confirm-actions preference and in confirmation dialogs. Phrased to follow 'Ask before'.",
+	"chatbot-action-redirect": "Name of the 'redirect' action. See {{msg-mw|chatbot-action-websearch}}.",
+	"chatbot-action-edit": "Name of the 'edit' action. See {{msg-mw|chatbot-action-websearch}}.",
+	"chatbot-action-delete": "Name of the 'delete' action. See {{msg-mw|chatbot-action-websearch}}.",
+	"chatbot-action-script": "Name of the 'script' action. See {{msg-mw|chatbot-action-websearch}}.",
 	"apihelp-chatbottoken-summary": "{{doc-apihelp-summary|chatbottoken}}",
 	"apihelp-chatbottoken-example": "{{doc-apihelp-example|chatbottoken}}",
 	"apierror-chatbot-token-not-configured": "{{doc-apierror}}\n\nShown when $wgChatbotSecret is not set on the wiki."

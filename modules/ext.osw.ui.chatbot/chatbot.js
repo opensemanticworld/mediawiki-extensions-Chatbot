@@ -8,11 +8,26 @@ $(document).ready(function () {
 
     var config = mw.config.get('wgChatbotPopupAssistentConfig');
     var userConfig = {
-        "confirm_redirect": mw.user.options.get("chatbot-confirm-redirect"),
         "iframe_src": mw.user.options.get("chatbot-custom-backend-iframe-src")
     };
-    if (userConfig["confirm_redirect"]) config["confirm_redirect"] = true;
-    else config["confirm_redirect"] = false;
+
+    // Which actions the assistant may perform, and which of them ask first.
+    // The site config is the ceiling; the preference can only add confirmations.
+    var allowedActions = mw.config.get('wgChatbotActions') || [];
+    var confirmActions = (function () {
+        var pref = mw.user.options.get('chatbot-confirm-actions');
+        if (pref === null || pref === undefined || pref === '') {
+            return mw.config.get('wgChatbotConfirmActions') || [];
+        }
+        return Array.isArray(pref) ? pref : String(pref).split('\n').filter(Boolean);
+    })();
+
+    function actionAllowed(action) {
+        return allowedActions.indexOf(action) !== -1;
+    }
+    function actionNeedsConfirm(action) {
+        return confirmActions.indexOf(action) !== -1;
+    }
     if (userConfig["iframe_src"] && userConfig["iframe_src"] !== ""
         && isAllowedBackend(userConfig["iframe_src"])) {
         config["iframe_src"] = userConfig["iframe_src"];
@@ -348,25 +363,211 @@ $(document).ready(function () {
     }
 
     async function redirect(page) {
-        var config = mw.config.get('wgChatbotPopupAssistentConfig');
-        var userConfig = {
-            "confirm_redirect": mw.user.options.get("chatbot-confirm-redirect"),
-            "iframe_src": mw.user.options.get("chatbot-custom-backend-iframe-src")
-        };
-        if (userConfig["confirm_redirect"]) config["confirm_redirect"] = true;
-        else config["confirm_redirect"] = false;
-        if (userConfig["iframe_src"]) config["iframe_src"] = userConfig["iframe_src"];
+        if (!actionAllowed("redirect")) return "rejected";
 
-        let url =  mw.config.get("wgScriptPath") + "/index.php?title=" + encodeURIComponent(page);
+        let url = mw.config.get("wgScriptPath") + "/index.php?title=" + encodeURIComponent(page);
         if (page.startsWith("/") || page.startsWith("http")) url = page;
-        let result = "rejected";
-        if (config["confirm_redirect"] === false || window.confirm("EVE wants to guide you to '" + url + "'. Accept?")) {
-            result = "accepted";
-            setTimeout(() => {
-                window.location = url;
-            }, 1000); // wait for pending data transmissions
+
+        if (!await confirm_action("redirect", { url: url })) return "rejected";
+        setTimeout(() => {
+            window.location = url;
+        }, 1000); // wait for pending data transmissions
+        return "accepted";
+    }
+
+    //// writing to the wiki
+
+    // Human text for the confirmation dialog and for refusals. Kept here rather
+    // than in the model's hands so the user always sees the same wording.
+    const ACTION_LABELS = {
+        websearch: "search the web",
+        redirect: "take you to another page",
+        edit: "create or change a page",
+        delete: "delete a page",
+        script: "write a script in your user space"
+    };
+
+    // MediaWiki/MwJson error codes mapped to something a chat user can act on.
+    // Anything unmapped falls through to the server's own message.
+    const ERROR_MESSAGES = {
+        permissiondenied: "You do not have permission to do that on this page.",
+        protectedpage: "This page is protected, so it cannot be changed.",
+        // what MediaWiki actually answers for site-wide JS/CSS - it does not
+        // use permissiondenied for these
+        sitejsprotected: "Site-wide JavaScript affects every visitor and can only be "
+            + "edited by an interface administrator. Use your own user space instead.",
+        sitecssprotected: "Site-wide CSS affects every visitor and can only be edited by "
+            + "an interface administrator. Use your own user space instead.",
+        userjsprotected: "Only this user may edit their own JavaScript pages.",
+        usercssprotected: "Only this user may edit their own CSS pages.",
+        cascadeprotected: "This page is protected because it is included on a protected page.",
+        blocked: "Your account is blocked from editing.",
+        autoblocked: "Your account is blocked from editing.",
+        readonly: "The wiki is in read-only mode right now.",
+        ratelimited: "You have hit the rate limit - please wait a moment and try again.",
+        abusefilter: "An abuse filter rejected this edit.",
+        abusefilter_warning: "An abuse filter warned about this edit.",
+        spamblacklist: "The content contains a URL that is on the spam blacklist.",
+        editconflict: "Someone else changed the page in the meantime - please retry.",
+        badtoken: "The edit token expired. Please reload the page and try again.",
+        missingtitle: "That page does not exist.",
+        cantdelete: "This page cannot be deleted.",
+        articleexists: "That page already exists.",
+        "mwjson-category-edit-right-denied": "You do not have the rights required to edit pages of this category."
+    };
+
+    function errorResult(code, fallback) {
+        return {
+            ok: false,
+            code: code || "unknown",
+            message: ERROR_MESSAGES[code] || fallback || "The wiki refused the request."
+        };
+    }
+
+    function isScriptPage(title) {
+        return /\.(js|css|json)$/i.test(title || "");
+    }
+
+    /**
+     * Gate a write before it is attempted.
+     * Returns null when the action may proceed, or an error result object.
+     */
+    function checkAction(action, title) {
+        if (!actionAllowed(action)) {
+            return {
+                ok: false,
+                code: "action-disabled",
+                message: "The wiki has not enabled the assistant to "
+                    + (ACTION_LABELS[action] || action)
+                    + ". An administrator can allow it with $wgChatbotActions."
+            };
         }
-        return result;
+
+        if (isScriptPage(title)) {
+            // Scripts are a separate, stricter permission than ordinary edits:
+            // 'edit' must never be usable to write executable code.
+            if (!actionAllowed("script")) {
+                return {
+                    ok: false,
+                    code: "script-disabled",
+                    message: "The wiki has not enabled the assistant to write scripts "
+                        + "(add 'script' to $wgChatbotActions)."
+                };
+            }
+            const user = mw.user.getName();
+            // Site-wide JS/CSS runs for every visitor, so it stays out of reach
+            // regardless of the user's rights.
+            if (/^MediaWiki:/i.test(title)) {
+                return {
+                    ok: false,
+                    code: "site-script-blocked",
+                    message: "Site-wide scripts such as " + title + " run for every visitor and "
+                        + "cannot be written by the assistant, even with interface-admin rights. "
+                        + "Use your own user space instead."
+                };
+            }
+            if (!user || title.indexOf("User:" + user + "/") !== 0) {
+                return {
+                    ok: false,
+                    code: "out-of-user-scope",
+                    message: "The assistant may only write scripts inside your own user space, "
+                        + "i.e. pages starting with 'User:" + (user || "<your name>") + "/'."
+                };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Ask the user. Also exposed as a tool so the backend can ask for actions
+     * that run on its side (web search). Resolves true when it may proceed.
+     */
+    async function confirm_action(action, details) {
+        if (!actionNeedsConfirm(action)) return true;
+        const what = ACTION_LABELS[action] || action;
+        let text = "EVE wants to " + what;
+        if (details && details.title) text += ": " + details.title;
+        else if (details && details.url) text += ": " + details.url;
+        else if (details && details.query) text += ": " + details.query;
+        text += ".";
+        try {
+            return !!await OO.ui.confirm(text);
+        } catch (e) {
+            // OOUI unavailable (e.g. stripped skin) - fall back rather than
+            // silently proceeding without consent.
+            return window.confirm(text);
+        }
+    }
+
+    /**
+     * Create or edit a page. `slots` maps slot name to content; json slots take
+     * objects. Only the named slots are touched.
+     */
+    async function edit_page(title, slots, summary) {
+        if (!title || typeof title !== "string") {
+            return { ok: false, code: "invalid-title", message: "No page title was given." };
+        }
+        if (!slots || typeof slots !== "object" || Array.isArray(slots) || !Object.keys(slots).length) {
+            return { ok: false, code: "invalid-slots", message: "No slot content was given." };
+        }
+
+        const blocked = checkAction("edit", title);
+        if (blocked) return blocked;
+        if (!await confirm_action(isScriptPage(title) ? "script" : "edit",
+                                  { title: title, slots: Object.keys(slots) })) {
+            return { ok: false, code: "declined", message: "You declined the change." };
+        }
+
+        try {
+            await mw.loader.using(['ext.mwjson.api', 'ext.mwjson.util']);
+            // Always start from getPage: editSlots writes every key of
+            // page.slots, so a hand-built object would blank untouched slots.
+            const page = await mwjson.api.getPage(title);
+            const created = !page.exists;
+            for (const slot of Object.keys(slots)) {
+                page.slots[slot] = slots[slot];
+                page.slots_changed[slot] = true;
+            }
+            let prepared = page;
+            if (Object.keys(slots).indexOf("jsondata") !== -1 && window.osl && osl.util) {
+                // Sets the header/footer invokes; without them the entity
+                // renders blank. [] skips schema regeneration.
+                prepared = await osl.util.postProcessPage(page, []);
+            }
+            await mwjson.api.updatePage(prepared, { comment: summary || "Edited by the chat assistant" });
+
+            const result = { ok: true, title: title, created: created, slots: Object.keys(slots) };
+            if (isScriptPage(title) && mw.config.get('wgAllowUserJs') === false) {
+                result.warnings = ["The page was saved, but personal JavaScript is disabled on "
+                    + "this wiki ($wgAllowUserJs is false), so the script will not run until an "
+                    + "administrator enables it."];
+            }
+            return result;
+        } catch (e) {
+            // updatePage already showed a sticky mw.notify - do not add another.
+            return errorResult(e && e.code, e && (e.info || e.message));
+        }
+    }
+
+    async function delete_page(title, reason) {
+        if (!title || typeof title !== "string") {
+            return { ok: false, code: "invalid-title", message: "No page title was given." };
+        }
+        const blocked = checkAction("delete", title);
+        if (blocked) return blocked;
+        if (!await confirm_action("delete", { title: title })) {
+            return { ok: false, code: "declined", message: "You declined the deletion." };
+        }
+        try {
+            await mw.loader.using(['ext.mwjson.api']);
+            await mwjson.api.deletePage(title, { comment: reason || "Deleted by the chat assistant" });
+            return { ok: true, title: title, deleted: true };
+        } catch (e) {
+            const result = errorResult(e && e.code, e && e.message);
+            // deletePage stays silent, unlike updatePage - tell the user here.
+            if (mw.notify) mw.notify(result.message, { type: 'error' });
+            return result;
+        }
     }
 
     async function full_text_search(query) {
@@ -644,6 +845,18 @@ $(document).ready(function () {
 
                 if (data["name"] === "smw_ask_query") {
                     response["result"] = await smw_ask_query(...data["args"]);
+                }
+
+                if (data["name"] === "edit_page") {
+                    response["result"] = await edit_page(...data["args"]);
+                }
+
+                if (data["name"] === "delete_page") {
+                    response["result"] = await delete_page(...data["args"]);
+                }
+
+                if (data["name"] === "confirm_action") {
+                    response["result"] = await confirm_action(...data["args"]);
                 }
 
                 if (data["name"] === "get_file_data_url") {

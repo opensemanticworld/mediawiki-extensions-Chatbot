@@ -19,24 +19,40 @@
 	},
 	"config": {
 		"ChatbotPopupAssistentConfig": {
-				"value": {
-					"iframe_src": false,
-					"confirm_redirect": true
-				},
-				"description": "Configures the popup chat assistant. 'iframe_src' is the url of the chatbot backend to embed (false disables the assistant), 'confirm_redirect' asks the user before the assistant navigates to another page."
+			"value": {
+				"iframe_src": false
 			},
+			"description": "Configures the popup chat assistant. 'iframe_src' is the url of the chatbot backend to embed (false disables the assistant). Note the url usually ends in /main, the name panel serves the app under."
+		},
+		"ChatbotActions": {
+			"value": [
+				"websearch"
+			],
+			"description": "General actions the assistant may perform: 'websearch', 'redirect', 'edit', 'delete', 'script'. Only 'websearch' is enabled by default - installing the extension never grants the assistant write access to the wiki. 'script' lets it write JavaScript and CSS, but only inside the user's own scope (User:<name>/...); MediaWiki:Common.js and site-wide JS stay blocked even for interface admins. 'script' additionally requires $wgAllowUserJs = true, which MediaWiki disables by default - without it the pages can be saved but are never loaded.",
+			"merge_strategy": "provide_default"
+		},
+		"ChatbotConfirmActions": {
+			"value": [
+				"websearch",
+				"redirect",
+				"script"
+			],
+			"description": "Actions from $wgChatbotActions that ask the user for confirmation before they run. Replaces the former 'confirm_redirect' setting.",
+			"merge_strategy": "provide_default"
+		},
 		"ChatbotSecret": {
-				"value": "",
-				"description": "Secret shared with the chatbot backend (CHATBOT_SHARED_SECRET there). Used to sign the per-user token that action=chatbottoken issues. When empty no token is issued and the backend runs unauthenticated."
-			},
+			"value": "",
+			"description": "Secret shared with the chatbot backend (CHATBOT_SHARED_SECRET there). Used to sign the per-user token that action=chatbottoken issues. When empty no token is issued and the backend runs unauthenticated."
+		},
 		"ChatbotTokenTtl": {
-				"value": 43200,
-				"description": "Lifetime in seconds of the token issued by action=chatbottoken."
-			},
+			"value": 43200,
+			"description": "Lifetime in seconds of the token issued by action=chatbottoken."
+		},
 		"ChatbotAllowedBackendOrigins": {
-				"value": [],
-				"description": "Origins a user may point the 'Custom backend for iframe' preference at, e.g. ['http://localhost:52670']. Empty disables the preference: it hands the full tool-call channel - including page content and file downloads - to whatever origin is entered."
-			}
+			"value": [],
+			"description": "Origins a user may point the 'Custom backend for iframe' preference at, e.g. ['http://localhost:52670']. Empty disables the preference: it hands the full tool-call channel - including page content and file downloads - to whatever origin is entered.",
+			"merge_strategy": "provide_default"
+		}
 	},
 	"ExtensionMessagesFiles": {
 		"ChatbotAlias": "Chatbot.i18n.alias.php",
