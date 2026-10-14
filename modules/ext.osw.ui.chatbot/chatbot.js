@@ -384,7 +384,8 @@ $(document).ready(function () {
         redirect: "take you to another page",
         edit: "create or change a page",
         delete: "delete a page",
-        script: "write a script in your user space"
+        script: "write a script in your user space",
+        upload: "upload a file to the wiki"
     };
 
     // MediaWiki/MwJson error codes mapped to something a chat user can act on.
@@ -549,6 +550,83 @@ $(document).ready(function () {
         }
     }
 
+    // Ask the chat iframe for a file the user staged there. The blob is
+    // structure-cloned, so it never becomes base64 and never passes through
+    // the chat backend.
+    function fetchStagedAttachment(id) {
+        return new Promise((resolve) => {
+            const requestId = "att-req-" + Math.random().toString(36).slice(2);
+            const timer = setTimeout(() => {
+                window.removeEventListener("message", onMessage);
+                resolve(null);
+            }, 15000);
+            function onMessage(event) {
+                const iframe = document.getElementById("chatbot_iframe");
+                if (!iframe || event.source !== iframe.contentWindow) return;
+                if (event.origin !== frameOrigin) return;
+                const data = event.data;
+                if (!data || data.type !== "chatbot_attachment_blob") return;
+                if (data.requestId !== requestId) return;
+                clearTimeout(timer);
+                window.removeEventListener("message", onMessage);
+                resolve(data);
+            }
+            window.addEventListener("message", onMessage);
+            replyToBackend({ type: "chatbot_attachment_get", id: id, requestId: requestId });
+        });
+    }
+
+    // Category:WikiFile - a file page is an entity like any other
+    const WIKIFILE_CATEGORY = "Category:OSW11a53cdfbdc24524bf8ac435cbf65d9d";
+
+    async function upload_file(attachment_id, label) {
+        const blocked = checkAction("upload", "");
+        if (blocked) return blocked;
+
+        const staged = await fetchStagedAttachment(attachment_id);
+        if (!staged || !staged.blob) {
+            return { ok: false, code: "no-attachment",
+                     message: "That attachment is no longer available - ask the user to attach it again." };
+        }
+        if (!await confirm_action("upload", { title: staged.name })) {
+            return { ok: false, code: "declined", message: "You declined the upload." };
+        }
+
+        try {
+            await mw.loader.using(['ext.mwjson.api', 'ext.mwjson.util', 'ext.OpenSemanticLab.forms']);
+            const uuid = mwjson.util.uuidv4();
+            const ext = (staged.name || "").includes(".")
+                ? staged.name.split(".").pop().toLowerCase() : "bin";
+            const target = mwjson.util.OswId(uuid) + "." + ext;   // OSW<uuid>.png
+            const title = "File:" + target;
+
+            // mw.Api wants a File with the target name, not the original one
+            const file = new File([staged.blob], target,
+                                  { type: staged.mime || staged.blob.type });
+
+            let page;
+            try { page = await mwjson.api.getFilePage(target); }
+            catch (e) { page = await mwjson.api.getPage(title); }
+
+            page.file = file;
+            page.file.contentBlob = file;
+            page.file.changed = true;
+            page.slots['jsondata'] = {
+                type: [WIKIFILE_CATEGORY],
+                uuid: uuid,
+                file: title,
+                label: [{ text: label || staged.name,
+                          lang: mw.config.get('wgUserLanguage') || 'en' }]
+            };
+            page.slots_changed['jsondata'] = true;
+            page = await osl.util.postProcessPage(page, []);
+            await mwjson.api.updatePage(page, { comment: "Uploaded by the chat assistant" });
+            return { ok: true, title: title, name: staged.name };
+        } catch (e) {
+            return errorResult(e && e.code, e && (e.info || e.message));
+        }
+    }
+
     async function delete_page(title, reason) {
         if (!title || typeof title !== "string") {
             return { ok: false, code: "invalid-title", message: "No page title was given." };
@@ -702,8 +780,12 @@ $(document).ready(function () {
 
     async function create_category_instance(category_page, default_data) {
         osl.ui.createInstance([category_page], default_data);
-        let result = "success";
-        return result;
+        // createInstance opens a modal editor and its promise never settles on
+        // cancel, so we cannot await it. Report what actually happened rather
+        // than "success" - otherwise the assistant tells the user a page
+        // exists that may never be saved.
+        return "The form editor is now open, prefilled. The page is only created once the "
+            + "user reviews the fields and saves it.";
     }
 
     async function smw_ask_query(smw_ask_query) {
@@ -853,6 +935,10 @@ $(document).ready(function () {
 
                 if (data["name"] === "delete_page") {
                     response["result"] = await delete_page(...data["args"]);
+                }
+
+                if (data["name"] === "upload_file") {
+                    response["result"] = await upload_file(...data["args"]);
                 }
 
                 if (data["name"] === "confirm_action") {

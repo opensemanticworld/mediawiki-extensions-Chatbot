@@ -22,5 +22,6 @@
 	"chatbot-custom-backend-iframe-src-invalid": "This backend url is not allowed. Ask an administrator to add its origin to $wgChatbotAllowedBackendOrigins.",
 	"apihelp-chatbottoken-summary": "Issue a short lived token that identifies you to the chatbot backend.",
 	"apihelp-chatbottoken-example": "Get a chatbot backend token",
-	"apierror-chatbot-token-not-configured": "The chatbot backend token is not configured on this wiki ($wgChatbotSecret is empty)."
+	"apierror-chatbot-token-not-configured": "The chatbot backend token is not configured on this wiki ($wgChatbotSecret is empty).",
+	"chatbot-action-upload": "uploading a file to the wiki"
 }

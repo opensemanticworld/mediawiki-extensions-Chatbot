@@ -52,11 +52,12 @@ $wgChatbotPopupAssistentConfig = [
 //   edit       create and change pages and their slots
 //   delete     delete pages
 //   script     write JavaScript/CSS, user scope only - see below
-$wgChatbotActions = [ 'websearch', 'redirect', 'edit' ];
+//   upload     store a file the user attached to the chat as a WikiFile
+$wgChatbotActions = [ 'websearch', 'redirect', 'edit', 'upload' ];
 
 // Which of those ask the user first. This is a dialog in the browser, shown
 // before the tool runs; the assistant cannot bypass it.
-$wgChatbotConfirmActions = [ 'websearch', 'redirect', 'script' ];
+$wgChatbotConfirmActions = [ 'websearch', 'redirect', 'script', 'upload' ];
 
 // Shared with the backend (CHATBOT_SHARED_SECRET there). Enables the signed
 // per-user token described below. Leave empty to run the backend open.
@@ -95,6 +96,12 @@ touched. Every refusal - missing rights, protected page, edit conflict, an abuse
 is mapped to a plain sentence and handed back to the assistant, which relays it instead of
 claiming success. MediaWiki checks the user's rights on every write regardless of what is
 configured here; `$wgChatbotActions` only narrows what the assistant is allowed to attempt.
+
+**Uploads.** A file the user attaches to the chat stays in the browser; the chat page hands
+it to the wiki page, which uploads it as `File:OSW<uuid>.<ext>` - an instance of
+`Category:WikiFile` with `type`, `uuid`, a self-referencing `file` and a label from the
+original filename, plus the usual header/footer invokes. Each upload mints a fresh id, so it
+never overwrites an existing file. Needs the `upload` right.
 
 ### Scripts run for their author only
 

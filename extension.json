@@ -28,14 +28,15 @@
 			"value": [
 				"websearch"
 			],
-			"description": "General actions the assistant may perform: 'websearch', 'redirect', 'edit', 'delete', 'script'. Only 'websearch' is enabled by default - installing the extension never grants the assistant write access to the wiki. 'script' lets it write JavaScript and CSS, but only inside the user's own scope (User:<name>/...); MediaWiki:Common.js and site-wide JS stay blocked even for interface admins. 'script' additionally requires $wgAllowUserJs = true, which MediaWiki disables by default - without it the pages can be saved but are never loaded.",
+			"description": "General actions the assistant may perform: 'websearch', 'redirect', 'edit', 'delete', 'script', 'upload'. Only 'websearch' is enabled by default - installing the extension never grants the assistant write access to the wiki. 'script' lets it write JavaScript and CSS, but only inside the user's own scope (User:<name>/...); MediaWiki:Common.js and site-wide JS stay blocked even for interface admins. 'script' additionally requires $wgAllowUserJs = true, which MediaWiki disables by default - without it the pages can be saved but are never loaded. 'upload' lets it store files the user attached to the chat as WikiFile entities.",
 			"merge_strategy": "provide_default"
 		},
 		"ChatbotConfirmActions": {
 			"value": [
 				"websearch",
 				"redirect",
-				"script"
+				"script",
+				"upload"
 			],
 			"description": "Actions from $wgChatbotActions that ask the user for confirmation before they run. Replaces the former 'confirm_redirect' setting.",
 			"merge_strategy": "provide_default"
