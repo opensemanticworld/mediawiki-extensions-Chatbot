@@ -747,6 +747,35 @@ $(document).ready(function () {
     };
 
     async function get_category_schema(category_page) {
+        // Special:SlotResolver answers with a rendered "No content" page -
+        // status 200, text/html - when the category or its jsonschema slot is
+        // missing. The schema bundler then tries to parse the skin's markup
+        // and fails with an unreadable parser error, so check first.
+        try {
+            const url = mw.config.get("wgScriptPath")
+                + "/api.php?action=query&format=json&prop=revisions&rvprop=content"
+                + "&rvslots=jsonschema&titles=" + encodeURIComponent(category_page);
+            const data = await (await fetch(url)).json();
+            const pages = (data.query && data.query.pages) || {};
+            const page = pages[Object.keys(pages)[0]] || {};
+            if ("missing" in page) {
+                return { ok: false, code: "missing-category",
+                         message: "'" + category_page + "' does not exist on this wiki. "
+                             + "Find the right category with find_page_from_topic instead of "
+                             + "guessing an OSW-ID." };
+            }
+            const slots = ((page.revisions || [{}])[0] || {}).slots || {};
+            if (!slots.jsonschema || !slots.jsonschema["*"]) {
+                return { ok: false, code: "no-schema",
+                         message: "'" + category_page + "' has no jsonschema slot, so it is "
+                             + "not a category you can create instances of." };
+            }
+        } catch (err) {
+            console.error(err);
+            return { ok: false, code: "lookup-failed",
+                     message: "Could not look up '" + category_page + "': " + err };
+        }
+
         let config = {};
         config.schema = { "allOf": [] };
         config.schema.allOf.push({ "$ref": osl.util.getAbsoluteJsonSchemaUrl(category_page) });
@@ -774,7 +803,11 @@ $(document).ready(function () {
             return jsonschema.getSchema();
         } catch(err) {
             console.error(err);
-            return {};
+            // An empty schema used to be returned here, which the assistant
+            // read as "this category has no properties" and happily wrote
+            // invalid data from.
+            return { ok: false, code: "schema-error",
+                     message: "Could not resolve the schema of '" + category_page + "': " + err };
         }
     }
 
