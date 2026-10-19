@@ -26,6 +26,11 @@ use ApiBase;
 class ApiChatbotToken extends ApiBase {
 
 	public function execute() {
+		// Hiding the widget is not enough on its own - without this an
+		// anonymous visitor could still mint a token straight from the API and
+		// talk to the backend.
+		$this->checkUserRightsAny( 'chatbot-use' );
+
 		$config = $this->getConfig();
 		$secret = $config->get( 'ChatbotSecret' );
 		if ( !is_string( $secret ) || $secret === '' ) {

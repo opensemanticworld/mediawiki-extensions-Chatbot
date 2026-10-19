@@ -23,5 +23,7 @@
 	"apihelp-chatbottoken-summary": "Issue a short lived token that identifies you to the chatbot backend.",
 	"apihelp-chatbottoken-example": "Get a chatbot backend token",
 	"apierror-chatbot-token-not-configured": "The chatbot backend token is not configured on this wiki ($wgChatbotSecret is empty).",
-	"chatbot-action-upload": "uploading a file to the wiki"
+	"chatbot-action-upload": "uploading a file to the wiki",
+	"right-chatbot-use": "Use the AI chat assistant",
+	"action-chatbot-use": "use the AI chat assistant"
 }

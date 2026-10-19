@@ -20,5 +20,7 @@
 	"apihelp-chatbottoken-summary": "{{doc-apihelp-summary|chatbottoken}}",
 	"apihelp-chatbottoken-example": "{{doc-apihelp-example|chatbottoken}}",
 	"apierror-chatbot-token-not-configured": "{{doc-apierror}}\n\nShown when $wgChatbotSecret is not set on the wiki.",
-	"chatbot-action-upload": "Name of the 'upload' action. See {{msg-mw|chatbot-action-websearch}}."
+	"chatbot-action-upload": "Name of the 'upload' action. See {{msg-mw|chatbot-action-websearch}}.",
+	"right-chatbot-use": "{{doc-right|chatbot-use}}",
+	"action-chatbot-use": "{{doc-action|chatbot-use}}"
 }

@@ -18,6 +18,18 @@ class ChatbotHooks {
 
 	public static function onBeforePageDisplay( $out ) {
 
+		// 'chatbot-use' is granted to '*', so the assistant is shown to
+		// everyone unless a wiki opts out. To hide it from anonymous visitors
+		// - it costs model calls per message and an anonymous reader has no
+		// wiki session for it to act with - take the right away from '*' and
+		// give it back to the groups that should have it:
+		//
+		//   $wgGroupPermissions['*']['chatbot-use'] = false;
+		//   $wgGroupPermissions['user']['chatbot-use'] = true;
+		if ( !$out->getAuthority()->isAllowed( 'chatbot-use' ) ) {
+			return true;
+		}
+
 		$out->addModules( 'ext.osw.ui.chatbot' );
 
 		return true;

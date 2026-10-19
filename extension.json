@@ -55,6 +55,14 @@
 			"merge_strategy": "provide_default"
 		}
 	},
+	"AvailableRights": [
+		"chatbot-use"
+	],
+	"GroupPermissions": {
+		"*": {
+			"chatbot-use": true
+		}
+	},
 	"ExtensionMessagesFiles": {
 		"ChatbotAlias": "Chatbot.i18n.alias.php",
 		"ChatbotMagic": "Chatbot.i18n.magic.php"
