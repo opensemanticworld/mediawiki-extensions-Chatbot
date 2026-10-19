@@ -929,6 +929,21 @@ $(document).ready(function () {
         "edit_page", "delete_page", "upload_file", "redirect", "confirm_action"
     ];
     let activeConfirmCallId = null;
+    // Every call the browser has taken on and not yet answered.
+    const inFlightCalls = new Set();
+
+    // Minimising the window - or just switching tabs - makes this document
+    // hidden, and the browser may then throttle it to a crawl or stop running
+    // it at all. The work is still queued, so a call that is merely slow must
+    // not be reported to the model as a failed one. Tell the backend to stop
+    // the clock; visibilitychange fires immediately, before any throttling.
+    function reportHidden() {
+        if (!document.hidden) return;
+        inFlightCalls.forEach(function (id) {
+            replyToBackend({ type: "function_call_progress", id: id, state: "hidden" });
+        });
+    }
+    document.addEventListener("visibilitychange", reportHidden);
 
     // Tell the backend the browser is alive but waiting on a human, so it stops
     // the clock instead of reporting a write as failed while the dialog is
@@ -952,6 +967,7 @@ $(document).ready(function () {
 
     window.addEventListener("message", async (event) => {
 
+        let currentCallId = null;
         try {
             // Only the backend iframe may drive any of this.
             const iframe = document.getElementById("chatbot_iframe");
@@ -975,8 +991,16 @@ $(document).ready(function () {
                     "type": "function_call_result",
                     "id": data["id"],
                 };
+                currentCallId = data["id"];
+                inFlightCalls.add(currentCallId);
                 if (CONFIRMING_TOOLS.indexOf(data["name"]) !== -1) {
                     activeConfirmCallId = data["id"];
+                }
+                // Already hidden when the call arrived - say so straight away
+                // rather than waiting for a visibility change that may not come.
+                if (document.hidden) {
+                    replyToBackend({ type: "function_call_progress",
+                                     id: data["id"], state: "hidden" });
                 }
 
                 if (data["name"] === "resize_chatwindow") {
@@ -1043,10 +1067,14 @@ $(document).ready(function () {
                     response["result"] = await get_file_data_url(...data["args"]);
                 }
 
+                inFlightCalls.delete(data["id"]);
                 replyToBackend(response);
                 if (activeConfirmCallId === data["id"]) activeConfirmCallId = null;
             }
         } catch (error) {
+            // A throwing tool never replies, so without this the id would stay
+            // in the set and keep the clock paused for a call that is gone.
+            if (currentCallId) inFlightCalls.delete(currentCallId);
             console.error(error);
         }
     });
