@@ -491,6 +491,7 @@ $(document).ready(function () {
         else if (details && details.url) text += ": " + details.url;
         else if (details && details.query) text += ": " + details.query;
         text += ".";
+        reportAwaitingConfirmation();
         try {
             return !!await OO.ui.confirm(text);
         } catch (e) {
@@ -884,6 +885,63 @@ $(document).ready(function () {
         return null;
     }
 
+    // A file dropped on the chat popup but outside the iframe rectangle - the
+    // header, or the padding around it - never reaches the chat document. The
+    // wiki's own uploader (OpenSemanticLab's ve_extension.js) claims it instead
+    // on a capture-phase document listener, so the assistant never learns about
+    // it. Catch those first and hand them to the iframe.
+    // Open in either size: 'expand' and 'expand-large' replace one another.
+    function openChatContainer(target) {
+        const container = document.querySelector(".floating-chat");
+        if (!container) return null;
+        if (!container.classList.contains("expand") &&
+            !container.classList.contains("expand-large")) return null;
+        if (!target || !container.contains(target)) return null;
+        return container;
+    }
+
+    function forwardDropToChat(event) {
+        // Only while the chat is open, and only for drops on the chat itself -
+        // everywhere else the wiki uploader must keep working.
+        if (!openChatContainer(event.target)) return;
+        if (!event.dataTransfer) return;
+        const files = [...event.dataTransfer.files];
+        if (!files.length) return;
+        // stopPropagation stops the event reaching *other nodes*, not other
+        // listeners on this one. Registering on window capture - which always
+        // runs before document capture - is what guarantees we get there first
+        // and that OSL's document handler never sees the drop. Relying on
+        // registration order between two document listeners would make this
+        // depend on ResourceLoader module ordering.
+        event.stopPropagation();
+        event.preventDefault();
+        replyToBackend({ type: "chatbot_attachment_drop", files: files });
+    }
+    window.addEventListener("dragover", function (event) {
+        if (openChatContainer(event.target)) event.preventDefault();
+    }, true);
+    window.addEventListener("drop", forwardDropToChat, true);
+
+    // Tools that may put a confirmation dialog in front of the user. The
+    // backend runs these one at a time, so a single slot is enough to tell
+    // confirm_action which call it is answering for.
+    const CONFIRMING_TOOLS = [
+        "edit_page", "delete_page", "upload_file", "redirect", "confirm_action"
+    ];
+    let activeConfirmCallId = null;
+
+    // Tell the backend the browser is alive but waiting on a human, so it stops
+    // the clock instead of reporting a write as failed while the dialog is
+    // still open - which made the model retry and write twice.
+    function reportAwaitingConfirmation() {
+        if (!activeConfirmCallId) return;
+        replyToBackend({
+            type: "function_call_progress",
+            id: activeConfirmCallId,
+            state: "awaiting_confirmation"
+        });
+    }
+
     function replyToBackend(response) {
         if (!response) return;
         const iframe = document.getElementById("chatbot_iframe");
@@ -917,6 +975,9 @@ $(document).ready(function () {
                     "type": "function_call_result",
                     "id": data["id"],
                 };
+                if (CONFIRMING_TOOLS.indexOf(data["name"]) !== -1) {
+                    activeConfirmCallId = data["id"];
+                }
 
                 if (data["name"] === "resize_chatwindow") {
                     response["result"] = await resizeElement(...data["args"]);
@@ -983,6 +1044,7 @@ $(document).ready(function () {
                 }
 
                 replyToBackend(response);
+                if (activeConfirmCallId === data["id"]) activeConfirmCallId = null;
             }
         } catch (error) {
             console.error(error);
