@@ -24,14 +24,18 @@ body {
 	z-index: 1099; /* keep it on top of bootstrap-modals */
 }
 
-/* OOUI dialogs - including the assistant's own "may I edit this page?"
-   confirmation - are position: fixed with no z-index of their own, so the chat
-   popup above would paint over them. In the small size the dialog still peeks
-   out around the corner widget; enlarged, the chat covers 90% of the viewport
-   and the dialog is completely hidden, leaving the user nothing to click and
-   the call waiting until it times out. A modal belongs above a floating
-   widget, so put it there. */
-.oo-ui-windowManager-modal > .oo-ui-dialog {
+/* MediaWiki renders OOUI dialogs - including the assistant's own "may I edit
+   this page?" confirmation - inside #mw-teleport-target, which is
+   position: absolute with z-index 450 and so forms a stacking context. The
+   chat above sits at 1099, which puts it in front of that whole container:
+   enlarged it covers 90% of the viewport and the dialog is invisible, leaving
+   nothing to click while the call waits out its timeout.
+
+   It has to be the container that is raised. A z-index on the dialog itself
+   does nothing, because a child cannot escape the stacking context its parent
+   established - verified: screenshots with and without that rule were
+   byte-identical, dialog hidden in both. */
+#mw-teleport-target {
 	z-index: 1100;
 }
 .floating-chat {
