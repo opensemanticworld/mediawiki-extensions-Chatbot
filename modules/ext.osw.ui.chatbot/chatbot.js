@@ -649,32 +649,47 @@ $(document).ready(function () {
         }
     }
 
-    async function full_text_search(query) {
-        try {
-            const encodedQuery = encodeURIComponent(query);
-            let url = mw.config.get("wgScriptPath");
-            url += `/index.php?title=Special:Search&limit=100&offset=0&profile=default&search=${encodedQuery}`;
-            const response = await fetch(url);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const html = await response.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-
-            const searchResults = doc.querySelector('.mw-search-results');
-            
-            if (searchResults) {
-                return searchResults.outerHTML;
-            } else {
-                return null;
-            }
-            
-        } catch (error) {
-            throw error;
+    async function full_text_search(query, limit = 10) {
+        // The search API, not a scrape of Special:Search. The scrape used the
+        // default profile, which covers content namespaces only - so a term
+        // that appears inside an indexed PDF matched nothing, even though
+        // CirrusSearch stores the extracted text in file_text and returns a
+        // snippet for it. It also returned the raw results HTML, up to 100
+        // entries and tens of kilobytes, and null when nothing matched - which
+        // the backend reported to the model as a tool failure rather than as
+        // "no results".
+        const params = new URLSearchParams({
+            action: 'query',
+            format: 'json',
+            list: 'search',
+            srsearch: query,
+            srlimit: String(limit),
+            srnamespace: '*',            // includes File:, where PDF text lives
+            srprop: 'snippet|size',
+            srinfo: 'totalhits'
+        });
+        const response = await fetch(
+            `${mw.config.get("wgScriptPath")}/api.php?${params}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error.info || data.error.code);
+        }
+        const hits = (data.query && data.query.search) || [];
+        return {
+            totalhits: data.query?.searchinfo?.totalhits ?? hits.length,
+            results: hits.map((hit) => ({
+                title: hit.title,
+                // the snippet marks matches with <span class="searchmatch">;
+                // the model wants the words, not the markup
+                snippet: (hit.snippet || '')
+                    .replace(/<[^>]+>/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+            }))
+        };
     }
 
     async function find_page_from_topic(topic) {
@@ -829,8 +844,105 @@ $(document).ready(function () {
         return data;
     }
 
+    // Text of an uploaded document, with page numbers where the wiki has them.
+    //
+    // Never fetch the file itself for this: the Fraunhofer design manual is
+    // 16.1 MB, which base64 inflates to ~21.5 MB - past bokeh's 20 MB
+    // websocket message limit, so the reply was dropped and the call simply
+    // never came back.
+    //
+    // PdfHandler keeps per-page text in the image metadata, which is what
+    // makes a citation like "page 2 of File:...pdf" possible. CirrusSearch's
+    // file_text is the fallback for formats without that (docx, xlsx): same
+    // text, no page boundaries.
+    async function get_file_text(file_title, max_chars = 20000, query = '') {
+        const api = `${mw.config.get("wgScriptPath")}/api.php?`;
+        const limit = Math.max(1, Number(max_chars) || 20000);
+
+        const infoRes = await fetch(api + new URLSearchParams({
+            action: 'query', format: 'json', prop: 'imageinfo',
+            iiprop: 'metadata', titles: file_title
+        }));
+        if (!infoRes.ok) {
+            throw new Error(`HTTP error! status: ${infoRes.status}`);
+        }
+        const infoData = await infoRes.json();
+        const infoPage = Object.values(infoData.query?.pages || {})[0] || {};
+        const meta = infoPage.imageinfo?.[0]?.metadata || [];
+        const textMeta = meta.find((m) => m.name === 'text');
+        const pageCount = meta.find((m) => m.name === 'Pages')?.value;
+
+        if (Array.isArray(textMeta?.value)) {
+            // entries are {name: <0-based page index>, value: <page text>}
+            let pages = textMeta.value
+                .map((entry) => ({
+                    page: (Number(entry.name) || 0) + 1,
+                    text: String(entry.value || '').trim()
+                }))
+                .filter((pg) => pg.text);
+
+            const needle = String(query || '').trim().toLowerCase();
+            const matched = needle
+                ? pages.filter((pg) => pg.text.toLowerCase().includes(needle))
+                : [];
+            // When a term is given, answer with the pages that contain it -
+            // that is what a citation needs, and it keeps the reply small.
+            const chosen = matched.length ? matched : pages;
+
+            const out = [];
+            let used = 0;
+            for (const pg of chosen) {
+                if (used >= limit) break;
+                const slice = pg.text.slice(0, limit - used);
+                out.push({ page: pg.page, text: slice });
+                used += slice.length;
+            }
+            return {
+                title: infoPage.title || file_title,
+                page_count: pageCount || pages.length,
+                matched_pages: needle ? matched.map((pg) => pg.page) : null,
+                pages: out,
+                truncated: out.length < chosen.length
+                    || used >= limit && chosen.length > 0
+            };
+        }
+
+        // no per-page text: fall back to the indexed blob
+        const docRes = await fetch(api + new URLSearchParams({
+            action: 'query', format: 'json', prop: 'cirrusdoc', titles: file_title
+        }));
+        const docData = await docRes.json();
+        const docPage = Object.values(docData.query?.pages || {})[0] || {};
+        const text = (docPage.cirrusdoc || [])[0]?.source?.file_text || '';
+        return {
+            title: docPage.title || file_title,
+            page_count: null,
+            pages: null,
+            chars: text.length,
+            truncated: text.length > limit,
+            text: text.slice(0, limit)
+        };
+    }
+
     async function get_file_data_url(file_title) {
         // construct direct URL to file using Special:Redirect/file/<file_title>
+        // Refuse what cannot survive the trip rather than hanging on it: the
+        // base64 url is 4/3 of the file, and bokeh drops a websocket message
+        // over 20 MB, which looks exactly like the browser never answering.
+        const MAX_FILE_BYTES = 12 * 1024 * 1024;
+        const info = await fetch(`${mw.config.get("wgScriptPath")}/api.php?`
+            + new URLSearchParams({ action: 'query', format: 'json',
+                prop: 'imageinfo', iiprop: 'size', titles: file_title }));
+        if (info.ok) {
+            const d = await info.json();
+            const ii = (Object.values(d.query?.pages || {})[0] || {}).imageinfo;
+            const size = ii && ii[0] && ii[0].size;
+            if (size && size > MAX_FILE_BYTES) {
+                return { ok: false, code: 'filetoolarge', message:
+                    `'${file_title}' is ${(size / 1048576).toFixed(1)} MB, too large to load `
+                    + `directly. Use get_file_content, which reads the indexed text instead.` };
+            }
+        }
         let url = mw.config.get("wgScriptPath") + "/index.php?title=Special:Redirect/file/" + encodeURIComponent(file_title);
         // load file
         const response = await fetch(url);
@@ -1061,6 +1173,10 @@ $(document).ready(function () {
 
                 if (data["name"] === "confirm_action") {
                     response["result"] = await confirm_action(...data["args"]);
+                }
+
+                if (data["name"] === "get_file_text") {
+                    response["result"] = await get_file_text(...data["args"]);
                 }
 
                 if (data["name"] === "get_file_data_url") {
