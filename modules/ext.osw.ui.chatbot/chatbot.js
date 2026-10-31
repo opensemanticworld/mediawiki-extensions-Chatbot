@@ -889,12 +889,16 @@ $(document).ready(function () {
             // that is what a citation needs, and it keeps the reply small.
             const chosen = matched.length ? matched : pages;
 
+            // MediaWiki renders a single pdf page at ?title=<file>&page=N, so
+            // each excerpt carries the link a citation should point at.
+            const base = mw.config.get('wgServer') + mw.config.get('wgScriptPath')
+                + '/index.php?title=' + encodeURIComponent(infoPage.title || file_title);
             const out = [];
             let used = 0;
             for (const pg of chosen) {
                 if (used >= limit) break;
                 const slice = pg.text.slice(0, limit - used);
-                out.push({ page: pg.page, text: slice });
+                out.push({ page: pg.page, url: `${base}&page=${pg.page}`, text: slice });
                 used += slice.length;
             }
             return {
@@ -924,12 +928,12 @@ $(document).ready(function () {
         };
     }
 
-    async function get_file_data_url(file_title) {
+    async function get_file_data_url(file_title, max_bytes) {
         // construct direct URL to file using Special:Redirect/file/<file_title>
         // Refuse what cannot survive the trip rather than hanging on it: the
         // base64 url is 4/3 of the file, and bokeh drops a websocket message
         // over 20 MB, which looks exactly like the browser never answering.
-        const MAX_FILE_BYTES = 12 * 1024 * 1024;
+        const MAX_FILE_BYTES = Number(max_bytes) || 12 * 1024 * 1024;
         const info = await fetch(`${mw.config.get("wgScriptPath")}/api.php?`
             + new URLSearchParams({ action: 'query', format: 'json',
                 prop: 'imageinfo', iiprop: 'size', titles: file_title }));
