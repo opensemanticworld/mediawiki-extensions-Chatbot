@@ -385,7 +385,8 @@ $(document).ready(function () {
         edit: "create or change a page",
         delete: "delete a page",
         script: "write a script in your user space",
-        upload: "upload a file to the wiki"
+        upload: "upload a file to the wiki",
+        "code-sandbox": "open the Python sandbox and run code there"
     };
 
     // MediaWiki/MwJson error codes mapped to something a chat user can act on.
@@ -1038,11 +1039,106 @@ $(document).ready(function () {
     }, true);
     window.addEventListener("drop", forwardDropToChat, true);
 
+
+    //// the JupyterLite sandbox
+    //
+    // Served from this wiki's own origin, so the Python kernel in it shares the reader's
+    // MediaWiki session - which is the whole point, and also why running code there is
+    // gated and confirmed. See modules/ext.osw.ui.chatbot/sandbox.js.
+
+    function sandboxUnavailable() {
+        if (!window.mw || !mw.osw || !mw.osw.sandbox) {
+            return { ok: false, code: "sandbox-missing",
+                     message: "The sandbox client did not load on this page." };
+        }
+        if (!mw.osw.sandbox.isEnabled()) {
+            return { ok: false, code: "sandbox-disabled",
+                     message: "This wiki has no JupyterLite sandbox installed." };
+        }
+        if (!actionAllowed("code-sandbox")) {
+            return { ok: false, code: "action-disabled",
+                     message: "The wiki has not enabled the assistant to "
+                         + ACTION_LABELS["code-sandbox"]
+                         + ". An administrator can allow it with $wgChatbotActions." };
+        }
+        return null;
+    }
+
+    async function open_sandbox(notebook, onProgress) {
+        const blocked = sandboxUnavailable();
+        if (blocked) return blocked;
+
+        let url;
+        try {
+            const file = await mw.osw.sandbox.notebookUrl(notebook);
+            url = mw.osw.sandbox.basePath() + "lab/index.html"
+                + (file ? "?fromURL=" + encodeURIComponent(file) : "");
+        } catch (e) {
+            return { ok: false, code: "bad-notebook", message: String(e.message || e) };
+        }
+
+        if (!mw.osw.sandbox.openWindow(url)) {
+            return { ok: false, code: "popup-blocked",
+                     message: "The browser blocked the sandbox window. Ask the user to "
+                         + "allow popups for this site, then try again." };
+        }
+        // Waiting here rather than returning immediately: the next tool call would
+        // otherwise arrive before the lab exists and fail for a reason that has nothing
+        // to do with what the model asked for.
+        const ready = await mw.osw.sandbox.whenReady(onProgress);
+        return ready
+            ? { ok: true, open: true, ready: true }
+            : { ok: true, open: true, ready: false,
+                message: "The sandbox is open but still starting. Tell the user it needs "
+                    + "a moment, and try again rather than opening another one." };
+    }
+
+    async function create_notebook(name, cells, onProgress) {
+        const blocked = sandboxUnavailable();
+        if (blocked) return blocked;
+        if (!mw.osw.sandbox.isOpen()) {
+            const opened = await open_sandbox("", onProgress);
+            if (opened && opened.ok === false) return opened;
+        }
+        if (!await mw.osw.sandbox.whenReady(onProgress)) {
+            return { ok: false, code: "sandbox-not-ready",
+                     message: "The sandbox did not finish starting." };
+        }
+        return await mw.osw.sandbox.request("create_notebook", { name: name, cells: cells });
+    }
+
+    async function run_in_sandbox(code, onProgress) {
+        const blocked = sandboxUnavailable();
+        if (blocked) return blocked;
+        if (!mw.osw.sandbox.isOpen()) {
+            const opened = await open_sandbox("", onProgress);
+            if (opened && opened.ok === false) return opened;
+        }
+        // Every run, not just the first. The assistant reads wiki content, wiki content
+        // is written by anyone, and this executes with the reader's wiki session - so a
+        // human sees the code before it runs, each time.
+        if (!await confirm_action("code-sandbox", { title: "run code in the sandbox" })) {
+            return { ok: false, code: "declined", message: "The user declined to run it." };
+        }
+        if (!await mw.osw.sandbox.whenReady(onProgress)) {
+            return { ok: false, code: "sandbox-not-ready",
+                     message: "The sandbox did not finish starting." };
+        }
+        return await mw.osw.sandbox.request("run", { code: code });
+    }
+
+    async function sandbox_status() {
+        const blocked = sandboxUnavailable();
+        if (blocked) return blocked;
+        return { ok: true, open: mw.osw.sandbox.isOpen(), ready: mw.osw.sandbox.isReady() };
+    }
+
     // Tools that may put a confirmation dialog in front of the user. The
     // backend runs these one at a time, so a single slot is enough to tell
     // confirm_action which call it is answering for.
     const CONFIRMING_TOOLS = [
-        "edit_page", "delete_page", "upload_file", "redirect", "confirm_action"
+        "edit_page", "delete_page", "upload_file", "redirect", "confirm_action",
+        "run_in_sandbox"
     ];
     let activeConfirmCallId = null;
     // Every call the browser has taken on and not yet answered.
@@ -1173,6 +1269,27 @@ $(document).ready(function () {
 
                 if (data["name"] === "upload_file") {
                     response["result"] = await upload_file(...data["args"]);
+                }
+
+                if (data["name"] === "open_sandbox"
+                    || data["name"] === "create_notebook"
+                    || data["name"] === "run_in_sandbox") {
+                    const onProgress = function () {
+                        replyToBackend({ type: "function_call_progress",
+                                         id: data["id"], state: "working" });
+                    };
+                    const handlers = {
+                        open_sandbox: open_sandbox,
+                        create_notebook: create_notebook,
+                        run_in_sandbox: run_in_sandbox
+                    };
+                    response["result"] = await handlers[data["name"]](
+                        ...data["args"], onProgress
+                    );
+                }
+
+                if (data["name"] === "sandbox_status") {
+                    response["result"] = await sandbox_status(...data["args"]);
                 }
 
                 if (data["name"] === "confirm_action") {

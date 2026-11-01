@@ -84,6 +84,12 @@ class ChatbotHooks {
 			'edit' => 'edit',
 			'delete' => 'delete',
 			'script' => 'editmyuserjs',
+			// The sandbox runs Python with the reader's own wiki session, so letting the
+			// assistant drive it is a strictly larger capability than letting them open
+			// it themselves. Gated on the same right as using the sandbox at all, which
+			// means enabling the action cannot hand it to somebody the wiki has not
+			// already trusted with it.
+			'code-sandbox' => 'jupyterlite-use',
 		];
 		return array_values( array_filter( $actions, static function ( $action ) use ( $required, $pm, $user ) {
 			if ( !isset( $required[$action] ) ) {
