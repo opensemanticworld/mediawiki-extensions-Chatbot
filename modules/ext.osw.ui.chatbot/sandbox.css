@@ -1,0 +1,62 @@
+/* The sandbox panel.
+ *
+ * Docked to the right rather than centred: the user asked the assistant about the page
+ * they were reading, and taking that page away to show the answer defeats the point.
+ * The chat popup sits bottom-right, so this stops short of it.
+ */
+.osw-sandbox-panel {
+	position: fixed;
+	top: 0;
+	right: 0;
+	width: min( 55vw, 900px );
+	height: 100vh;
+	z-index: 900; /* under the chat popup and OOUI dialogs, over page content */
+	display: flex;
+	flex-direction: column;
+	background: #fff;
+	border-left: 1px solid #c8ccd1;
+	box-shadow: -2px 0 8px rgba( 0, 0, 0, 0.12 );
+}
+
+/* Hidden, not removed: the kernel keeps running and the ~40s cold start is not paid
+ * again the next time the assistant needs it. `visibility` rather than `display:none`
+ * because a display:none iframe is treated as having no layout, and some browsers
+ * throttle it harder. */
+.osw-sandbox-hidden {
+	visibility: hidden;
+	pointer-events: none;
+	transform: translateX( 100% );
+}
+
+.osw-sandbox-header {
+	display: flex;
+	align-items: center;
+	gap: 0.5em;
+	padding: 0.4em 0.6em;
+	background: #f8f9fa;
+	border-bottom: 1px solid #c8ccd1;
+}
+
+.osw-sandbox-title {
+	flex: 1;
+	font-weight: bold;
+}
+
+.osw-sandbox-btn {
+	border: 0;
+	background: transparent;
+	cursor: pointer;
+	font-size: 1.1em;
+	line-height: 1;
+	padding: 0.2em 0.4em;
+}
+
+.osw-sandbox-btn:hover {
+	background: #eaecf0;
+}
+
+#osw-sandbox-frame {
+	flex: 1;
+	width: 100%;
+	border: 0;
+}

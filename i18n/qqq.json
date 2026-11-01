@@ -22,5 +22,9 @@
 	"apierror-chatbot-token-not-configured": "{{doc-apierror}}\n\nShown when $wgChatbotSecret is not set on the wiki.",
 	"chatbot-action-upload": "Name of the 'upload' action. See {{msg-mw|chatbot-action-websearch}}.",
 	"right-chatbot-use": "{{doc-right|chatbot-use}}",
-	"action-chatbot-use": "{{doc-action|chatbot-use}}"
+	"action-chatbot-use": "{{doc-action|chatbot-use}}",
+	"chatbot-sandbox-title": "Heading of the sandbox panel, and the iframe's accessible title.",
+	"chatbot-sandbox-hide": "Tooltip for the button that hides the panel. The kernel keeps running.",
+	"chatbot-sandbox-popout": "Tooltip for the button that moves the sandbox to its own tab, so it survives navigation.",
+	"chatbot-sandbox-popup-blocked": "Shown when the browser refuses the new tab."
 }

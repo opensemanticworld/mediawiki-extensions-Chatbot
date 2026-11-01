@@ -25,5 +25,9 @@
 	"apierror-chatbot-token-not-configured": "The chatbot backend token is not configured on this wiki ($wgChatbotSecret is empty).",
 	"chatbot-action-upload": "uploading a file to the wiki",
 	"right-chatbot-use": "Use the AI chat assistant",
-	"action-chatbot-use": "use the AI chat assistant"
+	"action-chatbot-use": "use the AI chat assistant",
+	"chatbot-sandbox-title": "Python sandbox",
+	"chatbot-sandbox-hide": "Hide the sandbox",
+	"chatbot-sandbox-popout": "Open in its own tab (keeps running when you navigate)",
+	"chatbot-sandbox-popup-blocked": "The browser blocked the new tab. Allow popups for this site to move the sandbox out."
 }

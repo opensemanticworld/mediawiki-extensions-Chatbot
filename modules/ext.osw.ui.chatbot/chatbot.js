@@ -162,6 +162,14 @@ $(document).ready(function () {
         element.find('.header .close').click(closeElement);
         element.find('.header .resize').click(onResizeEvent);
         element.find('#sendMessage').click(sendNewMessage);
+        // Start Python loading now, hidden. By the time the user has typed a question
+        // worth a sandbox, the ~40s cold start is largely behind them. No-ops unless the
+        // wiki enabled the sandbox and the assistant may use it.
+        if (window.mw && mw.osw && mw.osw.sandbox) {
+            try { mw.osw.sandbox.warmUp(); } catch (e) {
+                mw.log.warn('chatbot: could not warm the sandbox', e);
+            }
+        }
         //messages.scrollTop(messages.prop("scrollHeight"));
 
         chat_window = document.getElementById("chatbot_iframe").contentWindow;
@@ -1068,26 +1076,24 @@ $(document).ready(function () {
         const blocked = sandboxUnavailable();
         if (blocked) return blocked;
 
-        let url;
+        let fileUrl = null;
         try {
-            const file = await mw.osw.sandbox.notebookUrl(notebook);
-            url = mw.osw.sandbox.basePath() + "lab/index.html"
-                + (file ? "?fromURL=" + encodeURIComponent(file) : "");
+            fileUrl = await mw.osw.sandbox.notebookUrl(notebook);
         } catch (e) {
             return { ok: false, code: "bad-notebook", message: String(e.message || e) };
         }
 
-        if (!mw.osw.sandbox.openWindow(url)) {
-            return { ok: false, code: "popup-blocked",
-                     message: "The browser blocked the sandbox window. Ask the user to "
-                         + "allow popups for this site, then try again." };
-        }
-        // Waiting here rather than returning immediately: the next tool call would
+        // An iframe on this page, revealed - not a new tab. It cannot be popup-blocked,
+        // it may already have been warming up while the user was typing, and it opens
+        // beside the page they were reading instead of replacing it.
+        mw.osw.sandbox.ensure({ fileUrl: fileUrl, show: true });
+
+        // Waited on here rather than returned immediately: the next tool call would
         // otherwise arrive before the lab exists and fail for a reason that has nothing
         // to do with what the model asked for.
         const ready = await mw.osw.sandbox.whenReady(onProgress);
         return ready
-            ? { ok: true, open: true, ready: true }
+            ? { ok: true, open: true, ready: true, visible: true }
             : { ok: true, open: true, ready: false,
                 message: "The sandbox is open but still starting. Tell the user it needs "
                     + "a moment, and try again rather than opening another one." };
@@ -1096,10 +1102,7 @@ $(document).ready(function () {
     async function create_notebook(name, cells, onProgress) {
         const blocked = sandboxUnavailable();
         if (blocked) return blocked;
-        if (!mw.osw.sandbox.isOpen()) {
-            const opened = await open_sandbox("", onProgress);
-            if (opened && opened.ok === false) return opened;
-        }
+        mw.osw.sandbox.ensure({ show: true });
         if (!await mw.osw.sandbox.whenReady(onProgress)) {
             return { ok: false, code: "sandbox-not-ready",
                      message: "The sandbox did not finish starting." };
@@ -1110,10 +1113,7 @@ $(document).ready(function () {
     async function run_in_sandbox(code, onProgress) {
         const blocked = sandboxUnavailable();
         if (blocked) return blocked;
-        if (!mw.osw.sandbox.isOpen()) {
-            const opened = await open_sandbox("", onProgress);
-            if (opened && opened.ok === false) return opened;
-        }
+        mw.osw.sandbox.ensure({ show: true });
         // Every run, not just the first. The assistant reads wiki content, wiki content
         // is written by anyone, and this executes with the reader's wiki session - so a
         // human sees the code before it runs, each time.
@@ -1130,7 +1130,9 @@ $(document).ready(function () {
     async function sandbox_status() {
         const blocked = sandboxUnavailable();
         if (blocked) return blocked;
-        return { ok: true, open: mw.osw.sandbox.isOpen(), ready: mw.osw.sandbox.isReady() };
+        return { ok: true, open: mw.osw.sandbox.isOpen(),
+                 ready: mw.osw.sandbox.isReady(),
+                 visible: mw.osw.sandbox.isVisible() };
     }
 
     // Tools that may put a confirmation dialog in front of the user. The

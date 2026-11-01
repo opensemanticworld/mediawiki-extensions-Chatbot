@@ -113,7 +113,14 @@
 				"chatbot.js"
 			],
 			"styles": [
-				"chatbot.css"
+				"chatbot.css",
+				"sandbox.css"
+			],
+			"messages": [
+				"chatbot-sandbox-title",
+				"chatbot-sandbox-hide",
+				"chatbot-sandbox-popout",
+				"chatbot-sandbox-popup-blocked"
 			]
 		}
 	},
