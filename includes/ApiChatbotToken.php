@@ -47,6 +47,13 @@ class ApiChatbotToken extends ApiBase {
 			// only needs to know that the request came from this wiki.
 			'u' => $user->isRegistered() ? $user->getName() : 'anon',
 			'w' => $config->get( 'DBname' ),
+			// This wiki's own origin. 'w' is a database name and cannot be
+			// linked to; the assistant is told to write absolute urls, because
+			// it renders inside an iframe on the backend's origin where a
+			// relative href would point at the backend instead. One backend now
+			// serves several wikis, so without this the model guesses - and
+			// guessed a different deployment's domain.
+			's' => $config->get( 'CanonicalServer' ) ?: $config->get( 'Server' ),
 			'iat' => $now,
 			'exp' => $now + $ttl,
 			'n' => bin2hex( random_bytes( 8 ) ),
