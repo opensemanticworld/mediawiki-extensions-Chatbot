@@ -514,7 +514,7 @@ $(document).ready(function () {
      * Create or edit a page. `slots` maps slot name to content; json slots take
      * objects. Only the named slots are touched.
      */
-    async function edit_page(title, slots, summary) {
+    async function edit_page(title, slots, summary, defaultJsondata) {
         if (!title || typeof title !== "string") {
             return { ok: false, code: "invalid-title", message: "No page title was given." };
         }
@@ -531,6 +531,18 @@ $(document).ready(function () {
 
         try {
             await mw.loader.using(['ext.mwjson.api', 'ext.mwjson.util']);
+
+            // Defaults the backend wants on this entity - a keyword, a part_of - merged
+            // with what the assistant supplied. mwjson.util.mergeDeep is the wiki's own
+            // merge: it concatenates arrays and uniques them, so the assistant can add
+            // keywords of its own without dropping ours, and a second implementation in
+            // python would be one more thing to keep in step with this one.
+            // Order matters: defaults are the target, so anything the assistant set for
+            // the same scalar key wins.
+            if (defaultJsondata && typeof slots.jsondata === "object" && slots.jsondata) {
+                slots.jsondata = mwjson.util.mergeDeep(defaultJsondata, slots.jsondata);
+            }
+
             // Always start from getPage: editSlots writes every key of
             // page.slots, so a hand-built object would blank untouched slots.
             const page = await mwjson.api.getPage(title);
