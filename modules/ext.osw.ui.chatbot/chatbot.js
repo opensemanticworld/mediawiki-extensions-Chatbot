@@ -1118,8 +1118,10 @@ $(document).ready(function () {
             ? { ok: true, open: true, ready: true, where: where,
                 message: popped
                     ? "The sandbox is open in its own window."
-                    : "The sandbox is open in a panel beside the page - the browser "
-                      + "blocked a separate window." }
+                    : "The sandbox is open in a panel on the left of the page. The "
+                      + "browser blocked opening a separate window, because only a "
+                      + "click can do that - tell the user they can press the \u2197 "
+                      + "button in the panel header to move it into its own window." }
             : { ok: true, open: true, ready: false, where: where,
                 message: "The sandbox is open but still starting. Tell the user it needs "
                     + "a moment, and try again rather than opening another one." };

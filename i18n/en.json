@@ -28,6 +28,6 @@
 	"action-chatbot-use": "use the AI chat assistant",
 	"chatbot-sandbox-title": "Python sandbox",
 	"chatbot-sandbox-hide": "Hide the sandbox",
-	"chatbot-sandbox-popout": "Open in its own tab (keeps running when you navigate)",
+	"chatbot-sandbox-popout": "Move to its own window (keeps running when you navigate away)",
 	"chatbot-sandbox-popup-blocked": "The browser blocked the new tab. Allow popups for this site to move the sandbox out."
 }
