@@ -220,10 +220,39 @@
 	 * hatch for a long computation. Notebooks are kept in browser storage either way, so
 	 * what is lost on navigation is the running kernel, not the work.
 	 *
-	 * @return {Window|null}
+	 * Opens on whatever notebook is currently open, not on the bare lab: the point of
+	 * showing the user the sandbox is showing them the code, and a Launcher with the
+	 * notebook one click away in a file browser is not that. Storage is shared with the
+	 * iframe - same origin, same IndexedDB - so the file is already there to open.
+	 *
+	 * @return {Promise<Window|null>}
 	 */
-	function popOut() {
-		var handle = window.open( labUrl(), WINDOW_NAME );
+	async function popOut() {
+		// request() resolves an { ok: false, error } object rather than rejecting, so a
+		// failure here is silent unless it is looked for. Falling back to the bare lab is
+		// right, but doing it without saying so turns "the popup shows the Launcher" into
+		// an unexplainable bug.
+		var path = null;
+		var info = await request( 'command', {
+			command: 'jupyterlab-ai-commands:get-notebook-info',
+			args: {}
+		} );
+		if ( info && info.notebookPath ) {
+			path = info.notebookPath;
+			// The new window loads the notebook from browser storage, while the cells
+			// the assistant just wrote live in the iframe's in-memory model until
+			// something saves them. Without this the user pops out and finds an empty
+			// notebook - the work is there, just not written down yet.
+			await request( 'command', {
+				command: 'jupyterlab-ai-commands:save-notebook',
+				args: { notebookPath: path }
+			} );
+		} else {
+			mw.log.warn( 'osw-sandbox: no notebook to open in the pop-out', info );
+		}
+
+		var url = labUrl() + ( path ? '?path=' + encodeURIComponent( path ) : '' );
+		var handle = window.open( url, WINDOW_NAME );
 		if ( !handle ) {
 			mw.notify( mw.msg( 'chatbot-sandbox-popup-blocked' ), { type: 'warn' } );
 			return null;
