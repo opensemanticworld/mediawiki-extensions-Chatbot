@@ -1066,10 +1066,33 @@ $(document).ready(function () {
     // MediaWiki session - which is the whole point, and also why running code there is
     // gated and confirmed. See modules/ext.osw.ui.chatbot/sandbox.js.
 
+    /**
+     * Make sure the sandbox client is loaded before anything asks for it.
+     *
+     * It lives in the JupyterLite extension now, because the panel is useful without a
+     * chatbot. That is a soft dependency on purpose: a wiki may have the assistant and
+     * no sandbox, and declaring it in extension.json would stop this whole module
+     * loading there rather than merely disabling one feature.
+     */
+    async function ensureSandboxClient() {
+        if (window.mw && mw.osw && mw.osw.sandbox) {
+            return true;
+        }
+        try {
+            if (mw.loader.getState("ext.osw.ui.jupyterlite")) {
+                await mw.loader.using("ext.osw.ui.jupyterlite");
+            }
+        } catch (e) {
+            // Not installed, or failed to load. The caller reports it as missing.
+        }
+        return !!(window.mw && mw.osw && mw.osw.sandbox);
+    }
+
     function sandboxUnavailable() {
         if (!window.mw || !mw.osw || !mw.osw.sandbox) {
             return { ok: false, code: "sandbox-missing",
-                     message: "The sandbox client did not load on this page." };
+                     message: "The sandbox client did not load on this page. The JupyterLite "
+                   + "extension provides it and may not be installed here." };
         }
         if (!mw.osw.sandbox.isEnabled()) {
             return { ok: false, code: "sandbox-disabled",
@@ -1085,6 +1108,7 @@ $(document).ready(function () {
     }
 
     async function open_sandbox(notebook, onProgress) {
+        await ensureSandboxClient();
         const blocked = sandboxUnavailable();
         if (blocked) return blocked;
 
@@ -1128,6 +1152,7 @@ $(document).ready(function () {
     }
 
     async function create_notebook(name, cells, onProgress) {
+        await ensureSandboxClient();
         const blocked = sandboxUnavailable();
         if (blocked) return blocked;
         mw.osw.sandbox.ensure({ show: true });
@@ -1139,6 +1164,7 @@ $(document).ready(function () {
     }
 
     async function run_in_sandbox(code, onProgress) {
+        await ensureSandboxClient();
         const blocked = sandboxUnavailable();
         if (blocked) return blocked;
         mw.osw.sandbox.ensure({ show: true });
@@ -1156,11 +1182,21 @@ $(document).ready(function () {
     }
 
     async function sandbox_status() {
+        await ensureSandboxClient();
         const blocked = sandboxUnavailable();
         if (blocked) return blocked;
-        return { ok: true, open: mw.osw.sandbox.isOpen(),
-                 ready: mw.osw.sandbox.isReady(),
-                 visible: mw.osw.sandbox.isVisible() };
+        const poppedOut = mw.osw.sandbox.isPoppedOut();
+        const visible = mw.osw.sandbox.isVisible();
+        return {
+            ok: true,
+            open: mw.osw.sandbox.isOpen(),
+            ready: mw.osw.sandbox.isReady(),
+            visible: visible,
+            poppedOut: poppedOut,
+            // Where it is from the user's point of view, which is what they are asking
+            // about when they say "I can't see it".
+            where: poppedOut ? "window" : (visible ? "panel" : "hidden")
+        };
     }
 
     /**
@@ -1172,6 +1208,7 @@ $(document).ready(function () {
      * assistant should not have to open it before asking it to do something.
      */
     async function sandbox_command(command, args) {
+        await ensureSandboxClient();
         if (!mw.osw.sandbox || !mw.osw.sandbox.isEnabled()) {
             return { ok: false, code: "sandbox-disabled",
                      message: "The code sandbox is not enabled on this wiki." };
@@ -1203,6 +1240,7 @@ $(document).ready(function () {
      * the notebook bytes never cross this bridge.
      */
     async function save_notebook_to_wiki(filename, comment) {
+        await ensureSandboxClient();
         if (!mw.osw.sandbox || !mw.osw.sandbox.isEnabled()) {
             return { ok: false, code: "sandbox-disabled",
                      message: "The code sandbox is not enabled on this wiki." };

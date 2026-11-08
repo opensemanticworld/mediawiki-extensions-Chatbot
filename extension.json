@@ -109,18 +109,10 @@
 				"mediawiki.user"
 			],
 			"scripts": [
-				"sandbox.js",
 				"chatbot.js"
 			],
 			"styles": [
-				"chatbot.css",
-				"sandbox.css"
-			],
-			"messages": [
-				"chatbot-sandbox-title",
-				"chatbot-sandbox-hide",
-				"chatbot-sandbox-popout",
-				"chatbot-sandbox-popup-blocked"
+				"chatbot.css"
 			]
 		}
 	},
