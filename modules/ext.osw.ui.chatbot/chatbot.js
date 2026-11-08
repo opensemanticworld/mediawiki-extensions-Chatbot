@@ -1147,6 +1147,29 @@ $(document).ready(function () {
                  visible: mw.osw.sandbox.isVisible() };
     }
 
+    /**
+     * Forward one jupyterlab-ai-commands command into the sandbox.
+     *
+     * One client-side tool rather than eleven: the backend names the command and the
+     * sandbox refuses anything outside that namespace, so adding a command upstream
+     * needs no change here. The sandbox is started if it is not already running - the
+     * assistant should not have to open it before asking it to do something.
+     */
+    async function sandbox_command(command, args) {
+        if (!mw.osw.sandbox || !mw.osw.sandbox.isEnabled()) {
+            return { ok: false, code: "sandbox-disabled",
+                     message: "The code sandbox is not enabled on this wiki." };
+        }
+        mw.osw.sandbox.ensure();
+        const ready = await mw.osw.sandbox.whenReady();
+        if (!ready) {
+            return { ok: false, code: "sandbox-not-ready",
+                     message: "The sandbox did not finish starting." };
+        }
+        return await mw.osw.sandbox.request("command",
+                                            { command: command, args: args || {} });
+    }
+
     // Tools that may put a confirmation dialog in front of the user. The
     // backend runs these one at a time, so a single slot is enough to tell
     // confirm_action which call it is answering for.
@@ -1302,6 +1325,9 @@ $(document).ready(function () {
                     );
                 }
 
+                if (data["name"] === "sandbox_command") {
+                    response["result"] = await sandbox_command(...data["args"]);
+                }
                 if (data["name"] === "sandbox_status") {
                     response["result"] = await sandbox_status(...data["args"]);
                 }
