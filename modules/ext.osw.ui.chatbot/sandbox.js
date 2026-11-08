@@ -365,6 +365,16 @@
 		if ( !target ) {
 			return Promise.resolve( { ok: false, error: 'the sandbox is not open' } );
 		}
+		// A popped-out window the user closed still answers targetWindow() until the
+		// handle notices; posting into it silently goes nowhere and the caller waits out
+		// the timeout instead of being told the sandbox is gone.
+		try {
+			if ( target.closed ) {
+				return Promise.resolve( { ok: false, error: 'the sandbox window was closed' } );
+			}
+		} catch ( e ) {
+			return Promise.resolve( { ok: false, error: 'the sandbox window is unreachable' } );
+		}
 		var id = 'req-' + nextRequestId++;
 		return new Promise( function ( resolve ) {
 			pending[ id ] = {

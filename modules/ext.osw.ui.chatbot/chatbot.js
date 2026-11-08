@@ -1160,14 +1160,24 @@ $(document).ready(function () {
             return { ok: false, code: "sandbox-disabled",
                      message: "The code sandbox is not enabled on this wiki." };
         }
-        mw.osw.sandbox.ensure();
-        const ready = await mw.osw.sandbox.whenReady();
-        if (!ready) {
-            return { ok: false, code: "sandbox-not-ready",
-                     message: "The sandbox did not finish starting." };
+        try {
+            mw.osw.sandbox.ensure();
+            const ready = await mw.osw.sandbox.whenReady();
+            if (!ready) {
+                return { ok: false, code: "sandbox-not-ready",
+                         message: "The sandbox did not finish starting." };
+            }
+            const result = await mw.osw.sandbox.request(
+                "command", { command: command, args: args || {} });
+            // The lab answers with undefined when a command resolves to nothing; the
+            // backend needs an object either way, and postMessage cannot carry undefined.
+            return result === undefined
+                ? { ok: true, result: null }
+                : result;
+        } catch (e) {
+            return { ok: false, code: "sandbox-command-failed",
+                     message: String((e && e.message) || e) };
         }
-        return await mw.osw.sandbox.request("command",
-                                            { command: command, args: args || {} });
     }
 
     // Tools that may put a confirmation dialog in front of the user. The
@@ -1344,6 +1354,17 @@ $(document).ready(function () {
                     response["result"] = await get_file_data_url(...data["args"]);
                 }
 
+                // A tool that matched no branch, or returned nothing, leaves this
+                // undefined - which postMessage cannot serialise, so the reply is never
+                // sent and the backend waits out its whole timeout for an answer that
+                // does not exist. An explicit result is always better than none.
+                if (response["result"] === undefined) {
+                    response["result"] = {
+                        ok: false,
+                        code: "no-result",
+                        message: "'" + data["name"] + "' returned nothing in the browser."
+                    };
+                }
                 inFlightCalls.delete(data["id"]);
                 replyToBackend(response);
                 if (activeConfirmCallId === data["id"]) activeConfirmCallId = null;
@@ -1353,6 +1374,20 @@ $(document).ready(function () {
             // in the set and keep the clock paused for a call that is gone.
             if (currentCallId) inFlightCalls.delete(currentCallId);
             console.error(error);
+            // And tell the backend. Swallowing the failure here turns a tool error the
+            // model could act on into a sixty second wait and "the browser did not
+            // answer", which is both slower and wrong about the cause.
+            if (currentCallId) {
+                replyToBackend({
+                    "type": "function_call_result",
+                    "id": currentCallId,
+                    "result": {
+                        ok: false,
+                        code: "client-tool-failed",
+                        message: String((error && error.message) || error)
+                    }
+                });
+            }
         }
     });
 
