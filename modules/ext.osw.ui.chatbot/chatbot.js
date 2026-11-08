@@ -1095,18 +1095,32 @@ $(document).ready(function () {
             return { ok: false, code: "bad-notebook", message: String(e.message || e) };
         }
 
-        // An iframe on this page, revealed - not a new tab. It cannot be popup-blocked,
-        // it may already have been warming up while the user was typing, and it opens
-        // beside the page they were reading instead of replacing it.
-        mw.osw.sandbox.ensure({ fileUrl: fileUrl, show: true });
+        // Asked for as its own window, because "open the sandbox for me" means a place
+        // the user can work that survives clicking a wiki link. window.open outside a
+        // user gesture is popup-blocked in most browsers though, and a tool call is not
+        // a gesture - so fall back to revealing the iframe here rather than leaving them
+        // with nothing, and say which one they got so the model does not claim a tab
+        // that is not there.
+        mw.osw.sandbox.ensure({ fileUrl: fileUrl });
+        let popped = null;
+        try {
+            popped = await mw.osw.sandbox.popOut();
+        } catch (e) {
+            popped = null;
+        }
+        if (!popped) {
+            mw.osw.sandbox.ensure({ fileUrl: fileUrl, show: true });
+        }
 
-        // Waited on here rather than returned immediately: the next tool call would
-        // otherwise arrive before the lab exists and fail for a reason that has nothing
-        // to do with what the model asked for.
         const ready = await mw.osw.sandbox.whenReady(onProgress);
+        const where = popped ? "window" : "panel";
         return ready
-            ? { ok: true, open: true, ready: true, visible: true }
-            : { ok: true, open: true, ready: false,
+            ? { ok: true, open: true, ready: true, where: where,
+                message: popped
+                    ? "The sandbox is open in its own window."
+                    : "The sandbox is open in a panel beside the page - the browser "
+                      + "blocked a separate window." }
+            : { ok: true, open: true, ready: false, where: where,
                 message: "The sandbox is open but still starting. Tell the user it needs "
                     + "a moment, and try again rather than opening another one." };
     }

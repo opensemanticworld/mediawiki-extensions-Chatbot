@@ -1,21 +1,22 @@
 /* The sandbox panel.
  *
- * Docked to the right rather than centred: the user asked the assistant about the page
- * they were reading, and taking that page away to show the answer defeats the point.
- * The chat popup sits bottom-right, so this stops short of it.
+ * Docked to the left, and to an edge rather than centred: the user asked the assistant
+ * about the page they were reading, and taking that page away to show the answer defeats
+ * the point. Left specifically because the chat occupies the right - overlapping it
+ * would cover the conversation that is driving the sandbox.
  */
 .osw-sandbox-panel {
 	position: fixed;
 	top: 0;
-	right: 0;
+	left: 0;
 	width: min( 55vw, 900px );
 	height: 100vh;
 	z-index: 900; /* under the chat popup and OOUI dialogs, over page content */
 	display: flex;
 	flex-direction: column;
 	background: #fff;
-	border-left: 1px solid #c8ccd1;
-	box-shadow: -2px 0 8px rgba( 0, 0, 0, 0.12 );
+	border-right: 1px solid #c8ccd1;
+	box-shadow: 2px 0 8px rgba( 0, 0, 0, 0.12 );
 }
 
 /* Hidden, not removed: the kernel keeps running and the ~40s cold start is not paid
@@ -25,7 +26,9 @@
 .osw-sandbox-hidden {
 	visibility: hidden;
 	pointer-events: none;
-	transform: translateX( 100% );
+	/* Negative: the panel is docked left, so off-screen is to the left. The positive
+	 * value that suited a right-docked panel would sweep it across the article. */
+	transform: translateX( -100% );
 }
 
 .osw-sandbox-header {
