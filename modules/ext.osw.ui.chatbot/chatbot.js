@@ -1194,12 +1194,38 @@ $(document).ready(function () {
         }
     }
 
+    /**
+     * Save the sandbox's open notebook into the wiki as an uploaded file.
+     *
+     * The sandbox does the upload itself - it is same-origin and holds the session - so
+     * the notebook bytes never cross this bridge.
+     */
+    async function save_notebook_to_wiki(filename, comment) {
+        if (!mw.osw.sandbox || !mw.osw.sandbox.isEnabled()) {
+            return { ok: false, code: "sandbox-disabled",
+                     message: "The code sandbox is not enabled on this wiki." };
+        }
+        const blocked = checkAction("upload", filename || "notebook");
+        if (blocked) return blocked;
+        if (!await confirm_action("upload", { title: filename || "notebook.ipynb" })) {
+            return { ok: false, code: "declined", message: "You declined the upload." };
+        }
+        try {
+            const result = await mw.osw.sandbox.request("save_notebook_to_wiki",
+                { filename: filename || "", comment: comment || "" });
+            return result === undefined ? { ok: false, code: "no-result" } : result;
+        } catch (e) {
+            return { ok: false, code: "save-failed",
+                     message: String((e && e.message) || e) };
+        }
+    }
+
     // Tools that may put a confirmation dialog in front of the user. The
     // backend runs these one at a time, so a single slot is enough to tell
     // confirm_action which call it is answering for.
     const CONFIRMING_TOOLS = [
         "edit_page", "delete_page", "upload_file", "redirect", "confirm_action",
-        "run_in_sandbox"
+        "run_in_sandbox", "save_notebook_to_wiki"
     ];
     let activeConfirmCallId = null;
     // Every call the browser has taken on and not yet answered.
@@ -1235,7 +1261,27 @@ $(document).ready(function () {
         const iframe = document.getElementById("chatbot_iframe");
         if (!iframe || !iframe.contentWindow) return;
         chat_window = iframe.contentWindow;
-        chat_window.postMessage(response, frameOrigin);
+
+        // Round-tripped through JSON before it leaves. postMessage carries `undefined`
+        // happily, but the chat panel assigns what arrives to a Bokeh property, and
+        // Bokeh throws "[object Undefined] is not serializable" while encoding it - in
+        // the iframe, far from the tool that produced it, with no call id to blame. The
+        // lab's own command results are the usual source: a field like errorName is
+        // simply absent on success. JSON.stringify drops those keys, which is exactly
+        // the wanted shape.
+        let safe;
+        try {
+            safe = JSON.parse(JSON.stringify(response));
+        } catch (e) {
+            safe = {
+                type: response.type,
+                id: response.id,
+                result: { ok: false, code: "unserialisable-result",
+                          message: "The browser produced a result that cannot be sent: "
+                              + String((e && e.message) || e) }
+            };
+        }
+        chat_window.postMessage(safe, frameOrigin);
     }
 
     window.addEventListener("message", async (event) => {
@@ -1349,6 +1395,9 @@ $(document).ready(function () {
                     );
                 }
 
+                if (data["name"] === "save_notebook_to_wiki") {
+                    response["result"] = await save_notebook_to_wiki(...data["args"]);
+                }
                 if (data["name"] === "sandbox_command") {
                     response["result"] = await sandbox_command(...data["args"]);
                 }
