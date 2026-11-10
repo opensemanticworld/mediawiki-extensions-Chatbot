@@ -1088,7 +1088,8 @@ $(document).ready(function () {
         return !!(window.mw && mw.osw && mw.osw.sandbox);
     }
 
-    function sandboxUnavailable() {
+    async function sandboxBlocked() {
+        await ensureSandboxClient();
         if (!window.mw || !mw.osw || !mw.osw.sandbox) {
             return { ok: false, code: "sandbox-missing",
                      message: "The sandbox client did not load on this page. The JupyterLite "
@@ -1108,8 +1109,7 @@ $(document).ready(function () {
     }
 
     async function open_sandbox(notebook, onProgress) {
-        await ensureSandboxClient();
-        const blocked = sandboxUnavailable();
+        const blocked = await sandboxBlocked();
         if (blocked) return blocked;
 
         let fileUrl = null;
@@ -1152,20 +1152,14 @@ $(document).ready(function () {
     }
 
     async function create_notebook(name, cells, onProgress) {
-        await ensureSandboxClient();
-        const blocked = sandboxUnavailable();
+        const blocked = await sandboxBlocked();
         if (blocked) return blocked;
-        mw.osw.sandbox.ensure({ show: true });
-        if (!await mw.osw.sandbox.whenReady(onProgress)) {
-            return { ok: false, code: "sandbox-not-ready",
-                     message: "The sandbox did not finish starting." };
-        }
-        return await mw.osw.sandbox.request("create_notebook", { name: name, cells: cells });
+        mw.osw.sandbox.show();
+        return await mw.osw.sandbox.createNotebook(name, cells, onProgress);
     }
 
     async function run_in_sandbox(code, onProgress) {
-        await ensureSandboxClient();
-        const blocked = sandboxUnavailable();
+        const blocked = await sandboxBlocked();
         if (blocked) return blocked;
         mw.osw.sandbox.ensure({ show: true });
         // Every run, not just the first. The assistant reads wiki content, wiki content
@@ -1174,16 +1168,11 @@ $(document).ready(function () {
         if (!await confirm_action("code-sandbox", { title: "run code in the sandbox" })) {
             return { ok: false, code: "declined", message: "The user declined to run it." };
         }
-        if (!await mw.osw.sandbox.whenReady(onProgress)) {
-            return { ok: false, code: "sandbox-not-ready",
-                     message: "The sandbox did not finish starting." };
-        }
-        return await mw.osw.sandbox.request("run", { code: code });
+        return await mw.osw.sandbox.runCode(code, onProgress);
     }
 
     async function sandbox_status() {
-        await ensureSandboxClient();
-        const blocked = sandboxUnavailable();
+        const blocked = await sandboxBlocked();
         if (blocked) return blocked;
         const poppedOut = mw.osw.sandbox.isPoppedOut();
         const visible = mw.osw.sandbox.isVisible();
@@ -1200,6 +1189,61 @@ $(document).ready(function () {
     }
 
     /**
+     * Commands that need the user's word before they run, keyed by the command itself.
+     *
+     * Attached to the capability, not to the tool that happens to reach it. The
+     * confirmation used to live in `run_in_sandbox`, so any other route to `run-cell`
+     * - a generic command tool, a new wrapper someone adds later - would execute code
+     * with nobody asked. The sandbox holds the user's live wiki session, so that is not
+     * a formality.
+     */
+    const SANDBOX_CONFIRM = {
+        "jupyterlab-ai-commands:run-cell": ["code-sandbox", "run a notebook cell"],
+        "jupyterlab-ai-commands:execute-in-kernel": ["code-sandbox", "run code in the sandbox"],
+        "jupyterlab-ai-commands:delete-file": ["delete", "delete a file in the sandbox"],
+        "jupyterlab-ai-commands:delete-cell": ["delete", "delete a notebook cell"]
+    };
+
+    async function push_file_to_osw(path, label, comment) {
+        const blocked = await sandboxBlocked()
+            || checkAction("upload", label || path || "file");
+        if (blocked) return blocked;
+        if (!await confirm_action("upload", { title: label || path })) {
+            return { ok: false, code: "declined", message: "You declined the upload." };
+        }
+        try {
+            return await mw.osw.sandbox.saveFileToWiki(path, label, comment);
+        } catch (e) {
+            return { ok: false, code: "push-failed",
+                     message: String((e && e.message) || e) };
+        }
+    }
+
+    async function pull_file_from_osw(title, path) {
+        // Reading a wiki file the user can already read, into their own browser: no
+        // confirmation, nothing leaves the wiki.
+        const blocked = await sandboxBlocked();
+        if (blocked) return blocked;
+        try {
+            return await mw.osw.sandbox.loadFileFromWiki(title, path);
+        } catch (e) {
+            return { ok: false, code: "pull-failed",
+                     message: String((e && e.message) || e) };
+        }
+    }
+
+    async function discover_commands() {
+        const blocked = await sandboxBlocked();
+        if (blocked) return blocked;
+        try {
+            return await mw.osw.sandbox.listCommands();
+        } catch (e) {
+            return { ok: false, code: "sandbox-command-failed",
+                     message: String((e && e.message) || e) };
+        }
+    }
+
+    /**
      * Forward one jupyterlab-ai-commands command into the sandbox.
      *
      * One client-side tool rather than eleven: the backend names the command and the
@@ -1208,25 +1252,20 @@ $(document).ready(function () {
      * assistant should not have to open it before asking it to do something.
      */
     async function sandbox_command(command, args) {
-        await ensureSandboxClient();
-        if (!mw.osw.sandbox || !mw.osw.sandbox.isEnabled()) {
-            return { ok: false, code: "sandbox-disabled",
-                     message: "The code sandbox is not enabled on this wiki." };
+        const blocked = await sandboxBlocked();
+        if (blocked) return blocked;
+        const needsConfirm = SANDBOX_CONFIRM[command];
+        if (needsConfirm) {
+            const [action, what] = needsConfirm;
+            const notAllowed = checkAction(action, what);
+            if (notAllowed) return notAllowed;
+            if (!await confirm_action(action, { title: what })) {
+                return { ok: false, code: "declined",
+                         message: "The user declined that." };
+            }
         }
         try {
-            mw.osw.sandbox.ensure();
-            const ready = await mw.osw.sandbox.whenReady();
-            if (!ready) {
-                return { ok: false, code: "sandbox-not-ready",
-                         message: "The sandbox did not finish starting." };
-            }
-            const result = await mw.osw.sandbox.request(
-                "command", { command: command, args: args || {} });
-            // The lab answers with undefined when a command resolves to nothing; the
-            // backend needs an object either way, and postMessage cannot carry undefined.
-            return result === undefined
-                ? { ok: true, result: null }
-                : result;
+            return await mw.osw.sandbox.labCommand(command, args || {});
         } catch (e) {
             return { ok: false, code: "sandbox-command-failed",
                      message: String((e && e.message) || e) };
@@ -1239,21 +1278,14 @@ $(document).ready(function () {
      * The sandbox does the upload itself - it is same-origin and holds the session - so
      * the notebook bytes never cross this bridge.
      */
-    async function save_notebook_to_wiki(filename, comment) {
-        await ensureSandboxClient();
-        if (!mw.osw.sandbox || !mw.osw.sandbox.isEnabled()) {
-            return { ok: false, code: "sandbox-disabled",
-                     message: "The code sandbox is not enabled on this wiki." };
-        }
-        const blocked = checkAction("upload", filename || "notebook");
+    async function save_notebook_to_wiki(label, comment) {
+        const blocked = await sandboxBlocked() || checkAction("upload", label || "notebook");
         if (blocked) return blocked;
-        if (!await confirm_action("upload", { title: filename || "notebook.ipynb" })) {
+        if (!await confirm_action("upload", { title: label || "notebook" })) {
             return { ok: false, code: "declined", message: "You declined the upload." };
         }
         try {
-            const result = await mw.osw.sandbox.request("save_notebook_to_wiki",
-                { filename: filename || "", comment: comment || "" });
-            return result === undefined ? { ok: false, code: "no-result" } : result;
+            return await mw.osw.sandbox.saveNotebookToWiki(label, comment);
         } catch (e) {
             return { ok: false, code: "save-failed",
                      message: String((e && e.message) || e) };
@@ -1265,7 +1297,8 @@ $(document).ready(function () {
     // confirm_action which call it is answering for.
     const CONFIRMING_TOOLS = [
         "edit_page", "delete_page", "upload_file", "redirect", "confirm_action",
-        "run_in_sandbox", "save_notebook_to_wiki"
+        "run_in_sandbox", "save_notebook_to_wiki", "sandbox_command",
+        "push_file_to_osw"
     ];
     let activeConfirmCallId = null;
     // Every call the browser has taken on and not yet answered.
@@ -1345,7 +1378,10 @@ $(document).ready(function () {
             }
 
             if (data["type"] === "function_call") {
-                console.log("Received data from child iframe ", event.origin, event.data);
+                // Not console.log: this fires on every tool call and the payload is
+                // the call itself - page content, file contents, whatever the tool
+                // returned. mw.log is a no-op unless the user asked for debug output.
+                mw.log( "chatbot: tool call from the backend", event.origin, data.name );
                 let response = {
                     "type": "function_call_result",
                     "id": data["id"],
@@ -1360,10 +1396,6 @@ $(document).ready(function () {
                 if (document.hidden) {
                     replyToBackend({ type: "function_call_progress",
                                      id: data["id"], state: "hidden" });
-                }
-
-                if (data["name"] === "resize_chatwindow") {
-                    response["result"] = await resizeElement(...data["args"]);
                 }
 
                 if (data["name"] === "multiply") {
@@ -1443,6 +1475,15 @@ $(document).ready(function () {
                 }
                 if (data["name"] === "sandbox_status") {
                     response["result"] = await sandbox_status(...data["args"]);
+                }
+                if (data["name"] === "discover_commands") {
+                    response["result"] = await discover_commands();
+                }
+                if (data["name"] === "push_file_to_osw") {
+                    response["result"] = await push_file_to_osw(...data["args"]);
+                }
+                if (data["name"] === "pull_file_from_osw") {
+                    response["result"] = await pull_file_from_osw(...data["args"]);
                 }
 
                 if (data["name"] === "confirm_action") {
