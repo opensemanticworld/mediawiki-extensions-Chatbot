@@ -162,6 +162,14 @@ $(document).ready(function () {
         element.find('.header .close').click(closeElement);
         element.find('.header .resize').click(onResizeEvent);
         element.find('#sendMessage').click(sendNewMessage);
+        // Start Python loading now, hidden. By the time the user has typed a question
+        // worth a sandbox, the ~40s cold start is largely behind them. No-ops unless the
+        // wiki enabled the sandbox and the assistant may use it.
+        if (window.mw && mw.osw && mw.osw.sandbox) {
+            try { mw.osw.sandbox.warmUp(); } catch (e) {
+                mw.log.warn('chatbot: could not warm the sandbox', e);
+            }
+        }
         //messages.scrollTop(messages.prop("scrollHeight"));
 
         chat_window = document.getElementById("chatbot_iframe").contentWindow;
@@ -385,7 +393,8 @@ $(document).ready(function () {
         edit: "create or change a page",
         delete: "delete a page",
         script: "write a script in your user space",
-        upload: "upload a file to the wiki"
+        upload: "upload a file to the wiki",
+        "code-sandbox": "open the Python sandbox and run code there"
     };
 
     // MediaWiki/MwJson error codes mapped to something a chat user can act on.
@@ -505,7 +514,7 @@ $(document).ready(function () {
      * Create or edit a page. `slots` maps slot name to content; json slots take
      * objects. Only the named slots are touched.
      */
-    async function edit_page(title, slots, summary) {
+    async function edit_page(title, slots, summary, defaultJsondata) {
         if (!title || typeof title !== "string") {
             return { ok: false, code: "invalid-title", message: "No page title was given." };
         }
@@ -522,6 +531,18 @@ $(document).ready(function () {
 
         try {
             await mw.loader.using(['ext.mwjson.api', 'ext.mwjson.util']);
+
+            // Defaults the backend wants on this entity - a keyword, a part_of - merged
+            // with what the assistant supplied. mwjson.util.mergeDeep is the wiki's own
+            // merge: it concatenates arrays and uniques them, so the assistant can add
+            // keywords of its own without dropping ours, and a second implementation in
+            // python would be one more thing to keep in step with this one.
+            // Order matters: defaults are the target, so anything the assistant set for
+            // the same scalar key wins.
+            if (defaultJsondata && typeof slots.jsondata === "object" && slots.jsondata) {
+                slots.jsondata = mwjson.util.mergeDeep(defaultJsondata, slots.jsondata);
+            }
+
             // Always start from getPage: editSlots writes every key of
             // page.slots, so a hand-built object would blank untouched slots.
             const page = await mwjson.api.getPage(title);
@@ -649,32 +670,47 @@ $(document).ready(function () {
         }
     }
 
-    async function full_text_search(query) {
-        try {
-            const encodedQuery = encodeURIComponent(query);
-            let url = mw.config.get("wgScriptPath");
-            url += `/index.php?title=Special:Search&limit=100&offset=0&profile=default&search=${encodedQuery}`;
-            const response = await fetch(url);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const html = await response.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-
-            const searchResults = doc.querySelector('.mw-search-results');
-            
-            if (searchResults) {
-                return searchResults.outerHTML;
-            } else {
-                return null;
-            }
-            
-        } catch (error) {
-            throw error;
+    async function full_text_search(query, limit = 10) {
+        // The search API, not a scrape of Special:Search. The scrape used the
+        // default profile, which covers content namespaces only - so a term
+        // that appears inside an indexed PDF matched nothing, even though
+        // CirrusSearch stores the extracted text in file_text and returns a
+        // snippet for it. It also returned the raw results HTML, up to 100
+        // entries and tens of kilobytes, and null when nothing matched - which
+        // the backend reported to the model as a tool failure rather than as
+        // "no results".
+        const params = new URLSearchParams({
+            action: 'query',
+            format: 'json',
+            list: 'search',
+            srsearch: query,
+            srlimit: String(limit),
+            srnamespace: '*',            // includes File:, where PDF text lives
+            srprop: 'snippet|size',
+            srinfo: 'totalhits'
+        });
+        const response = await fetch(
+            `${mw.config.get("wgScriptPath")}/api.php?${params}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error.info || data.error.code);
+        }
+        const hits = (data.query && data.query.search) || [];
+        return {
+            totalhits: data.query?.searchinfo?.totalhits ?? hits.length,
+            results: hits.map((hit) => ({
+                title: hit.title,
+                // the snippet marks matches with <span class="searchmatch">;
+                // the model wants the words, not the markup
+                snippet: (hit.snippet || '')
+                    .replace(/<[^>]+>/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+            }))
+        };
     }
 
     async function find_page_from_topic(topic) {
@@ -829,8 +865,109 @@ $(document).ready(function () {
         return data;
     }
 
-    async function get_file_data_url(file_title) {
+    // Text of an uploaded document, with page numbers where the wiki has them.
+    //
+    // Never fetch the file itself for this: the Fraunhofer design manual is
+    // 16.1 MB, which base64 inflates to ~21.5 MB - past bokeh's 20 MB
+    // websocket message limit, so the reply was dropped and the call simply
+    // never came back.
+    //
+    // PdfHandler keeps per-page text in the image metadata, which is what
+    // makes a citation like "page 2 of File:...pdf" possible. CirrusSearch's
+    // file_text is the fallback for formats without that (docx, xlsx): same
+    // text, no page boundaries.
+    async function get_file_text(file_title, max_chars = 20000, query = '') {
+        const api = `${mw.config.get("wgScriptPath")}/api.php?`;
+        const limit = Math.max(1, Number(max_chars) || 20000);
+
+        const infoRes = await fetch(api + new URLSearchParams({
+            action: 'query', format: 'json', prop: 'imageinfo',
+            iiprop: 'metadata', titles: file_title
+        }));
+        if (!infoRes.ok) {
+            throw new Error(`HTTP error! status: ${infoRes.status}`);
+        }
+        const infoData = await infoRes.json();
+        const infoPage = Object.values(infoData.query?.pages || {})[0] || {};
+        const meta = infoPage.imageinfo?.[0]?.metadata || [];
+        const textMeta = meta.find((m) => m.name === 'text');
+        const pageCount = meta.find((m) => m.name === 'Pages')?.value;
+
+        if (Array.isArray(textMeta?.value)) {
+            // entries are {name: <0-based page index>, value: <page text>}
+            let pages = textMeta.value
+                .map((entry) => ({
+                    page: (Number(entry.name) || 0) + 1,
+                    text: String(entry.value || '').trim()
+                }))
+                .filter((pg) => pg.text);
+
+            const needle = String(query || '').trim().toLowerCase();
+            const matched = needle
+                ? pages.filter((pg) => pg.text.toLowerCase().includes(needle))
+                : [];
+            // When a term is given, answer with the pages that contain it -
+            // that is what a citation needs, and it keeps the reply small.
+            const chosen = matched.length ? matched : pages;
+
+            // MediaWiki renders a single pdf page at ?title=<file>&page=N, so
+            // each excerpt carries the link a citation should point at.
+            const base = mw.config.get('wgServer') + mw.config.get('wgScriptPath')
+                + '/index.php?title=' + encodeURIComponent(infoPage.title || file_title);
+            const out = [];
+            let used = 0;
+            for (const pg of chosen) {
+                if (used >= limit) break;
+                const slice = pg.text.slice(0, limit - used);
+                out.push({ page: pg.page, url: `${base}&page=${pg.page}`, text: slice });
+                used += slice.length;
+            }
+            return {
+                title: infoPage.title || file_title,
+                page_count: pageCount || pages.length,
+                matched_pages: needle ? matched.map((pg) => pg.page) : null,
+                pages: out,
+                truncated: out.length < chosen.length
+                    || used >= limit && chosen.length > 0
+            };
+        }
+
+        // no per-page text: fall back to the indexed blob
+        const docRes = await fetch(api + new URLSearchParams({
+            action: 'query', format: 'json', prop: 'cirrusdoc', titles: file_title
+        }));
+        const docData = await docRes.json();
+        const docPage = Object.values(docData.query?.pages || {})[0] || {};
+        const text = (docPage.cirrusdoc || [])[0]?.source?.file_text || '';
+        return {
+            title: docPage.title || file_title,
+            page_count: null,
+            pages: null,
+            chars: text.length,
+            truncated: text.length > limit,
+            text: text.slice(0, limit)
+        };
+    }
+
+    async function get_file_data_url(file_title, max_bytes) {
         // construct direct URL to file using Special:Redirect/file/<file_title>
+        // Refuse what cannot survive the trip rather than hanging on it: the
+        // base64 url is 4/3 of the file, and bokeh drops a websocket message
+        // over 20 MB, which looks exactly like the browser never answering.
+        const MAX_FILE_BYTES = Number(max_bytes) || 12 * 1024 * 1024;
+        const info = await fetch(`${mw.config.get("wgScriptPath")}/api.php?`
+            + new URLSearchParams({ action: 'query', format: 'json',
+                prop: 'imageinfo', iiprop: 'size', titles: file_title }));
+        if (info.ok) {
+            const d = await info.json();
+            const ii = (Object.values(d.query?.pages || {})[0] || {}).imageinfo;
+            const size = ii && ii[0] && ii[0].size;
+            if (size && size > MAX_FILE_BYTES) {
+                return { ok: false, code: 'filetoolarge', message:
+                    `'${file_title}' is ${(size / 1048576).toFixed(1)} MB, too large to load `
+                    + `directly. Use get_file_content, which reads the indexed text instead.` };
+            }
+        }
         let url = mw.config.get("wgScriptPath") + "/index.php?title=Special:Redirect/file/" + encodeURIComponent(file_title);
         // load file
         const response = await fetch(url);
@@ -922,11 +1059,246 @@ $(document).ready(function () {
     }, true);
     window.addEventListener("drop", forwardDropToChat, true);
 
+
+    //// the JupyterLite sandbox
+    //
+    // Served from this wiki's own origin, so the Python kernel in it shares the reader's
+    // MediaWiki session - which is the whole point, and also why running code there is
+    // gated and confirmed. See modules/ext.osw.ui.chatbot/sandbox.js.
+
+    /**
+     * Make sure the sandbox client is loaded before anything asks for it.
+     *
+     * It lives in the JupyterLite extension now, because the panel is useful without a
+     * chatbot. That is a soft dependency on purpose: a wiki may have the assistant and
+     * no sandbox, and declaring it in extension.json would stop this whole module
+     * loading there rather than merely disabling one feature.
+     */
+    async function ensureSandboxClient() {
+        if (window.mw && mw.osw && mw.osw.sandbox) {
+            return true;
+        }
+        try {
+            if (mw.loader.getState("ext.osw.ui.jupyterlite")) {
+                await mw.loader.using("ext.osw.ui.jupyterlite");
+            }
+        } catch (e) {
+            // Not installed, or failed to load. The caller reports it as missing.
+        }
+        return !!(window.mw && mw.osw && mw.osw.sandbox);
+    }
+
+    async function sandboxBlocked() {
+        await ensureSandboxClient();
+        if (!window.mw || !mw.osw || !mw.osw.sandbox) {
+            return { ok: false, code: "sandbox-missing",
+                     message: "The sandbox client did not load on this page. The JupyterLite "
+                   + "extension provides it and may not be installed here." };
+        }
+        if (!mw.osw.sandbox.isEnabled()) {
+            return { ok: false, code: "sandbox-disabled",
+                     message: "This wiki has no JupyterLite sandbox installed." };
+        }
+        if (!actionAllowed("code-sandbox")) {
+            return { ok: false, code: "action-disabled",
+                     message: "The wiki has not enabled the assistant to "
+                         + ACTION_LABELS["code-sandbox"]
+                         + ". An administrator can allow it with $wgChatbotActions." };
+        }
+        return null;
+    }
+
+    async function open_sandbox(notebook, onProgress) {
+        const blocked = await sandboxBlocked();
+        if (blocked) return blocked;
+
+        let fileUrl = null;
+        try {
+            fileUrl = await mw.osw.sandbox.notebookUrl(notebook);
+        } catch (e) {
+            return { ok: false, code: "bad-notebook", message: String(e.message || e) };
+        }
+
+        // Asked for as its own window, because "open the sandbox for me" means a place
+        // the user can work that survives clicking a wiki link. window.open outside a
+        // user gesture is popup-blocked in most browsers though, and a tool call is not
+        // a gesture - so fall back to revealing the iframe here rather than leaving them
+        // with nothing, and say which one they got so the model does not claim a tab
+        // that is not there.
+        mw.osw.sandbox.ensure({ fileUrl: fileUrl });
+        let popped = null;
+        try {
+            popped = await mw.osw.sandbox.popOut();
+        } catch (e) {
+            popped = null;
+        }
+        if (!popped) {
+            mw.osw.sandbox.ensure({ fileUrl: fileUrl, show: true });
+        }
+
+        const ready = await mw.osw.sandbox.whenReady(onProgress);
+        const where = popped ? "window" : "panel";
+        return ready
+            ? { ok: true, open: true, ready: true, where: where,
+                message: popped
+                    ? "The sandbox is open in its own window."
+                    : "The sandbox is open in a panel on the left of the page. The "
+                      + "browser blocked opening a separate window, because only a "
+                      + "click can do that - tell the user they can press the \u2197 "
+                      + "button in the panel header to move it into its own window." }
+            : { ok: true, open: true, ready: false, where: where,
+                message: "The sandbox is open but still starting. Tell the user it needs "
+                    + "a moment, and try again rather than opening another one." };
+    }
+
+    async function create_notebook(name, cells, onProgress) {
+        const blocked = await sandboxBlocked();
+        if (blocked) return blocked;
+        mw.osw.sandbox.show();
+        return await mw.osw.sandbox.createNotebook(name, cells, onProgress);
+    }
+
+    async function run_in_sandbox(code, onProgress) {
+        const blocked = await sandboxBlocked();
+        if (blocked) return blocked;
+        mw.osw.sandbox.ensure({ show: true });
+        // Every run, not just the first. The assistant reads wiki content, wiki content
+        // is written by anyone, and this executes with the reader's wiki session - so a
+        // human sees the code before it runs, each time.
+        if (!await confirm_action("code-sandbox", { title: "run code in the sandbox" })) {
+            return { ok: false, code: "declined", message: "The user declined to run it." };
+        }
+        return await mw.osw.sandbox.runCode(code, onProgress);
+    }
+
+    async function sandbox_status() {
+        const blocked = await sandboxBlocked();
+        if (blocked) return blocked;
+        const poppedOut = mw.osw.sandbox.isPoppedOut();
+        const visible = mw.osw.sandbox.isVisible();
+        return {
+            ok: true,
+            open: mw.osw.sandbox.isOpen(),
+            ready: mw.osw.sandbox.isReady(),
+            visible: visible,
+            poppedOut: poppedOut,
+            // Where it is from the user's point of view, which is what they are asking
+            // about when they say "I can't see it".
+            where: poppedOut ? "window" : (visible ? "panel" : "hidden")
+        };
+    }
+
+    /**
+     * Commands that need the user's word before they run, keyed by the command itself.
+     *
+     * Attached to the capability, not to the tool that happens to reach it. The
+     * confirmation used to live in `run_in_sandbox`, so any other route to `run-cell`
+     * - a generic command tool, a new wrapper someone adds later - would execute code
+     * with nobody asked. The sandbox holds the user's live wiki session, so that is not
+     * a formality.
+     */
+    const SANDBOX_CONFIRM = {
+        "jupyterlab-ai-commands:run-cell": ["code-sandbox", "run a notebook cell"],
+        "jupyterlab-ai-commands:execute-in-kernel": ["code-sandbox", "run code in the sandbox"],
+        "jupyterlab-ai-commands:delete-file": ["delete", "delete a file in the sandbox"],
+        "jupyterlab-ai-commands:delete-cell": ["delete", "delete a notebook cell"]
+    };
+
+    async function push_file_to_osw(path, label, comment) {
+        const blocked = await sandboxBlocked()
+            || checkAction("upload", label || path || "file");
+        if (blocked) return blocked;
+        if (!await confirm_action("upload", { title: label || path })) {
+            return { ok: false, code: "declined", message: "You declined the upload." };
+        }
+        try {
+            return await mw.osw.sandbox.saveFileToWiki(path, label, comment);
+        } catch (e) {
+            return { ok: false, code: "push-failed",
+                     message: String((e && e.message) || e) };
+        }
+    }
+
+    async function pull_file_from_osw(title, path) {
+        // Reading a wiki file the user can already read, into their own browser: no
+        // confirmation, nothing leaves the wiki.
+        const blocked = await sandboxBlocked();
+        if (blocked) return blocked;
+        try {
+            return await mw.osw.sandbox.loadFileFromWiki(title, path);
+        } catch (e) {
+            return { ok: false, code: "pull-failed",
+                     message: String((e && e.message) || e) };
+        }
+    }
+
+    async function discover_commands() {
+        const blocked = await sandboxBlocked();
+        if (blocked) return blocked;
+        try {
+            return await mw.osw.sandbox.listCommands();
+        } catch (e) {
+            return { ok: false, code: "sandbox-command-failed",
+                     message: String((e && e.message) || e) };
+        }
+    }
+
+    /**
+     * Forward one jupyterlab-ai-commands command into the sandbox.
+     *
+     * One client-side tool rather than eleven: the backend names the command and the
+     * sandbox refuses anything outside that namespace, so adding a command upstream
+     * needs no change here. The sandbox is started if it is not already running - the
+     * assistant should not have to open it before asking it to do something.
+     */
+    async function sandbox_command(command, args) {
+        const blocked = await sandboxBlocked();
+        if (blocked) return blocked;
+        const needsConfirm = SANDBOX_CONFIRM[command];
+        if (needsConfirm) {
+            const [action, what] = needsConfirm;
+            const notAllowed = checkAction(action, what);
+            if (notAllowed) return notAllowed;
+            if (!await confirm_action(action, { title: what })) {
+                return { ok: false, code: "declined",
+                         message: "The user declined that." };
+            }
+        }
+        try {
+            return await mw.osw.sandbox.labCommand(command, args || {});
+        } catch (e) {
+            return { ok: false, code: "sandbox-command-failed",
+                     message: String((e && e.message) || e) };
+        }
+    }
+
+    /**
+     * Save the sandbox's open notebook into the wiki as an uploaded file.
+     *
+     * The sandbox does the upload itself - it is same-origin and holds the session - so
+     * the notebook bytes never cross this bridge.
+     */
+    async function save_notebook_to_wiki(label, comment) {
+        const blocked = await sandboxBlocked() || checkAction("upload", label || "notebook");
+        if (blocked) return blocked;
+        if (!await confirm_action("upload", { title: label || "notebook" })) {
+            return { ok: false, code: "declined", message: "You declined the upload." };
+        }
+        try {
+            return await mw.osw.sandbox.saveNotebookToWiki(label, comment);
+        } catch (e) {
+            return { ok: false, code: "save-failed",
+                     message: String((e && e.message) || e) };
+        }
+    }
+
     // Tools that may put a confirmation dialog in front of the user. The
     // backend runs these one at a time, so a single slot is enough to tell
     // confirm_action which call it is answering for.
     const CONFIRMING_TOOLS = [
-        "edit_page", "delete_page", "upload_file", "redirect", "confirm_action"
+        "edit_page", "delete_page", "upload_file", "redirect", "confirm_action",
+        "run_in_sandbox", "save_notebook_to_wiki", "sandbox_command",
+        "push_file_to_osw"
     ];
     let activeConfirmCallId = null;
     // Every call the browser has taken on and not yet answered.
@@ -962,7 +1334,27 @@ $(document).ready(function () {
         const iframe = document.getElementById("chatbot_iframe");
         if (!iframe || !iframe.contentWindow) return;
         chat_window = iframe.contentWindow;
-        chat_window.postMessage(response, frameOrigin);
+
+        // Round-tripped through JSON before it leaves. postMessage carries `undefined`
+        // happily, but the chat panel assigns what arrives to a Bokeh property, and
+        // Bokeh throws "[object Undefined] is not serializable" while encoding it - in
+        // the iframe, far from the tool that produced it, with no call id to blame. The
+        // lab's own command results are the usual source: a field like errorName is
+        // simply absent on success. JSON.stringify drops those keys, which is exactly
+        // the wanted shape.
+        let safe;
+        try {
+            safe = JSON.parse(JSON.stringify(response));
+        } catch (e) {
+            safe = {
+                type: response.type,
+                id: response.id,
+                result: { ok: false, code: "unserialisable-result",
+                          message: "The browser produced a result that cannot be sent: "
+                              + String((e && e.message) || e) }
+            };
+        }
+        chat_window.postMessage(safe, frameOrigin);
     }
 
     window.addEventListener("message", async (event) => {
@@ -986,7 +1378,10 @@ $(document).ready(function () {
             }
 
             if (data["type"] === "function_call") {
-                console.log("Received data from child iframe ", event.origin, event.data);
+                // Not console.log: this fires on every tool call and the payload is
+                // the call itself - page content, file contents, whatever the tool
+                // returned. mw.log is a no-op unless the user asked for debug output.
+                mw.log( "chatbot: tool call from the backend", event.origin, data.name );
                 let response = {
                     "type": "function_call_result",
                     "id": data["id"],
@@ -1001,10 +1396,6 @@ $(document).ready(function () {
                 if (document.hidden) {
                     replyToBackend({ type: "function_call_progress",
                                      id: data["id"], state: "hidden" });
-                }
-
-                if (data["name"] === "resize_chatwindow") {
-                    response["result"] = await resizeElement(...data["args"]);
                 }
 
                 if (data["name"] === "multiply") {
@@ -1059,14 +1450,65 @@ $(document).ready(function () {
                     response["result"] = await upload_file(...data["args"]);
                 }
 
+                if (data["name"] === "open_sandbox"
+                    || data["name"] === "create_notebook"
+                    || data["name"] === "run_in_sandbox") {
+                    const onProgress = function () {
+                        replyToBackend({ type: "function_call_progress",
+                                         id: data["id"], state: "working" });
+                    };
+                    const handlers = {
+                        open_sandbox: open_sandbox,
+                        create_notebook: create_notebook,
+                        run_in_sandbox: run_in_sandbox
+                    };
+                    response["result"] = await handlers[data["name"]](
+                        ...data["args"], onProgress
+                    );
+                }
+
+                if (data["name"] === "save_notebook_to_wiki") {
+                    response["result"] = await save_notebook_to_wiki(...data["args"]);
+                }
+                if (data["name"] === "sandbox_command") {
+                    response["result"] = await sandbox_command(...data["args"]);
+                }
+                if (data["name"] === "sandbox_status") {
+                    response["result"] = await sandbox_status(...data["args"]);
+                }
+                if (data["name"] === "discover_commands") {
+                    response["result"] = await discover_commands();
+                }
+                if (data["name"] === "push_file_to_osw") {
+                    response["result"] = await push_file_to_osw(...data["args"]);
+                }
+                if (data["name"] === "pull_file_from_osw") {
+                    response["result"] = await pull_file_from_osw(...data["args"]);
+                }
+
                 if (data["name"] === "confirm_action") {
                     response["result"] = await confirm_action(...data["args"]);
+                }
+
+                if (data["name"] === "get_file_text") {
+                    response["result"] = await get_file_text(...data["args"]);
                 }
 
                 if (data["name"] === "get_file_data_url") {
                     response["result"] = await get_file_data_url(...data["args"]);
                 }
 
+                // A tool that matched no branch, or returned nothing, leaves this
+                // undefined - which postMessage cannot serialise, so the reply is never
+                // sent and the backend waits out its whole timeout for an answer that
+                // does not exist. An explicit result is always better than none.
+                if (response["result"] === undefined) {
+                    response["result"] = {
+                        ok: false,
+                        code: "no-result",
+                        message: "'" + data["name"] + "' returned nothing in the browser."
+                    };
+                }
                 inFlightCalls.delete(data["id"]);
                 replyToBackend(response);
                 if (activeConfirmCallId === data["id"]) activeConfirmCallId = null;
@@ -1076,6 +1518,20 @@ $(document).ready(function () {
             // in the set and keep the clock paused for a call that is gone.
             if (currentCallId) inFlightCalls.delete(currentCallId);
             console.error(error);
+            // And tell the backend. Swallowing the failure here turns a tool error the
+            // model could act on into a sixty second wait and "the browser did not
+            // answer", which is both slower and wrong about the cause.
+            if (currentCallId) {
+                replyToBackend({
+                    "type": "function_call_result",
+                    "id": currentCallId,
+                    "result": {
+                        ok: false,
+                        code: "client-tool-failed",
+                        message: String((error && error.message) || error)
+                    }
+                });
+            }
         }
     });
 
